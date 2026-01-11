@@ -14,7 +14,7 @@ const settingsService = {
    */
   async getAutomationConfig() {
     const response = await api.get('/settings/automation');
-    return response.data.data || response.data;
+    return response?.data?.data || response?.data || {};
   },
 
   /**
@@ -34,7 +34,7 @@ const settingsService = {
    */
   async getWebhook() {
     const response = await api.get('/settings/webhook');
-    return response.data.url || response.data;
+    return response?.data?.url || '';
   },
 
   /**
@@ -70,7 +70,7 @@ const settingsService = {
    */
   async getDeviceStates() {
     const response = await api.get('/settings/device-states');
-    return response.data.data || response.data;
+    return response?.data?.data || response?.data || {};
   },
 
   // ==========================================
@@ -118,7 +118,7 @@ const settingsService = {
    */
   async getNotificationStats() {
     const response = await api.get('/notifications/stats');
-    return response.data;
+    return response?.data || { stats: {} };
   },
 
   /**
