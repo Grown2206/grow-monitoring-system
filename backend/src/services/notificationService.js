@@ -1,4 +1,4 @@
-const fetch = require('node-fetch'); // Falls node < 18, sonst ist fetch native
+// Node.js 18+ hat fetch nativ eingebaut - kein Import nötig
 
 // In einer echten App würde man dies in der DB pro User speichern
 // Hier nutzen wir eine Variable zur Laufzeit
