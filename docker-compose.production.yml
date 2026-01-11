@@ -1,0 +1,218 @@
+version: '3.8'
+
+services:
+  # Nginx Reverse Proxy with SSL/TLS
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: grow-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-cache:/var/cache/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend (React + Vite)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: grow-frontend
+    expose:
+      - "5173"
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=https://your-domain.com/api
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend (Node.js + Express)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grow-backend
+    expose:
+      - "3000"
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+      - MONGODB_URI=mongodb://mongodb:27017/growMonitoring
+      - MQTT_BROKER_URL=mqtt://mosquitto:1883
+      - PORT=3000
+    volumes:
+      - backend-uploads:/app/uploads
+      - backend-timelapse:/app/timelapse
+      - backend-logs:/app/logs
+    depends_on:
+      - mongodb
+      - mosquitto
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: grow-mongodb
+    expose:
+      - "27017"
+    env_file:
+      - .env.production
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+      - MONGO_INITDB_DATABASE=growMonitoring
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+      - ./backups/mongodb:/backups
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    command: ["mongod", "--auth"]
+
+  # Mosquitto MQTT Broker
+  mosquitto:
+    build:
+      context: ./mosquitto
+      dockerfile: Dockerfile
+    container_name: grow-mosquitto
+    expose:
+      - "1883"   # MQTT
+      - "9001"   # WebSocket
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-logs:/mosquitto/log
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Prometheus (Metrics Collection)
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: grow-prometheus
+    expose:
+      - "9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana (Monitoring Dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grow-grafana
+    expose:
+      - "3001"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_SERVER_ROOT_URL=https://your-domain.com/grafana
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - grow-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  grow-network:
+    driver: bridge
+
+volumes:
+  # Nginx
+  nginx-cache:
+    driver: local
+
+  # Backend
+  backend-uploads:
+    driver: local
+  backend-timelapse:
+    driver: local
+  backend-logs:
+    driver: local
+
+  # MongoDB
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+
+  # Mosquitto
+  mosquitto-data:
+    driver: local
+  mosquitto-logs:
+    driver: local
+
+  # Monitoring
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local

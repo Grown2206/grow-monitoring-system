@@ -1,0 +1,106 @@
+version: '3.8'
+
+services:
+  # ===== MONGODB DATABASE =====
+  mongodb:
+    image: mongo:6
+    container_name: grow-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: growsystem2024
+      MONGO_INITDB_DATABASE: growdb
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - grow-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===== BACKEND API =====
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: grow-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # MongoDB
+      DB_URI: mongodb://admin:growsystem2024@mongodb:27017/growdb?authSource=admin
+
+      # JWT
+      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key-min-32-chars}
+      JWT_EXPIRES_IN: 7d
+
+      # VAPID Keys (Push-Notifications)
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@growsystem.local}
+
+      # APIs (Optional)
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY}
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+
+      # MQTT (Public Broker - für Production eigenen Broker verwenden)
+      MQTT_BROKER_URL: mqtt://test.mosquitto.org
+      MQTT_TOPIC_PREFIX: grow_drexl_v2
+
+      # App Settings
+      PORT: 3000
+      NODE_ENV: production
+    volumes:
+      - backend_uploads:/app/uploads
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - grow-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      start_period: 40s
+      retries: 3
+
+  # ===== FRONTEND (React + Nginx) =====
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: grow-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - grow-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+# ===== VOLUMES =====
+volumes:
+  mongodb_data:
+    name: grow_mongodb_data
+  mongodb_config:
+    name: grow_mongodb_config
+  backend_uploads:
+    name: grow_backend_uploads
+
+# ===== NETWORKS =====
+networks:
+  grow-network:
+    name: grow-network
+    driver: bridge

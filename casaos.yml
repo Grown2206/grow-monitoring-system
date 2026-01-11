@@ -1,0 +1,232 @@
+name: grow-monitoring-system
+services:
+  nginx:
+    image: grow-nginx:latest
+    container_name: grow-nginx
+    ports:
+      - target: 80
+        published: "8080"
+        protocol: tcp
+      - target: 443
+        published: "8443"
+        protocol: tcp
+    restart: unless-stopped
+    x-casaos:
+      envs:
+        - container: NODE_ENV
+          description:
+            en_us: Environment mode
+          label:
+            en_us: NODE_ENV
+      ports:
+        - container: "80"
+          description:
+            en_us: HTTP Port
+          protocol: tcp
+        - container: "443"
+          description:
+            en_us: HTTPS Port
+          protocol: tcp
+      volumes:
+        - container: /etc/nginx/ssl
+          description:
+            en_us: SSL certificates directory
+    volumes:
+      - type: bind
+        source: /DATA/AppData/grow-system/nginx/ssl
+        target: /etc/nginx/ssl
+
+  backend:
+    image: grow-backend:latest
+    container_name: grow-backend
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongodb:27017/growMonitoring
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+    restart: unless-stopped
+    x-casaos:
+      envs:
+        - container: NODE_ENV
+          description:
+            en_us: Node environment
+          label:
+            en_us: NODE_ENV
+        - container: MONGODB_URI
+          description:
+            en_us: MongoDB connection string
+          label:
+            en_us: MongoDB URI
+        - container: JWT_SECRET
+          description:
+            en_us: JWT secret for authentication
+          label:
+            en_us: JWT Secret
+      volumes:
+        - container: /app/uploads
+          description:
+            en_us: Uploaded files directory
+        - container: /app/timelapse
+          description:
+            en_us: Timelapse images directory
+        - container: /app/logs
+          description:
+            en_us: Application logs
+    volumes:
+      - type: bind
+        source: /DATA/AppData/grow-system/uploads
+        target: /app/uploads
+      - type: bind
+        source: /DATA/AppData/grow-system/timelapse
+        target: /app/timelapse
+      - type: bind
+        source: /DATA/AppData/grow-system/logs
+        target: /app/logs
+
+  mongodb:
+    image: mongo:7.0
+    container_name: grow-mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: growMonitoring
+    restart: unless-stopped
+    x-casaos:
+      envs:
+        - container: MONGO_INITDB_ROOT_USERNAME
+          description:
+            en_us: MongoDB admin username
+          label:
+            en_us: Admin Username
+        - container: MONGO_INITDB_ROOT_PASSWORD
+          description:
+            en_us: MongoDB admin password
+          label:
+            en_us: Admin Password
+      volumes:
+        - container: /data/db
+          description:
+            en_us: MongoDB database files
+        - container: /backups
+          description:
+            en_us: Database backups
+    volumes:
+      - type: bind
+        source: /DATA/AppData/grow-system/mongodb
+        target: /data/db
+      - type: bind
+        source: /DATA/AppData/grow-system/backups/mongodb
+        target: /backups
+
+  mosquitto:
+    image: grow-mosquitto:latest
+    container_name: grow-mosquitto
+    ports:
+      - target: 1883
+        published: "1883"
+        protocol: tcp
+      - target: 9001
+        published: "9001"
+        protocol: tcp
+    restart: unless-stopped
+    x-casaos:
+      ports:
+        - container: "1883"
+          description:
+            en_us: MQTT Port
+          protocol: tcp
+        - container: "9001"
+          description:
+            en_us: MQTT WebSocket Port
+          protocol: tcp
+      volumes:
+        - container: /mosquitto/data
+          description:
+            en_us: MQTT broker data
+        - container: /mosquitto/log
+          description:
+            en_us: MQTT broker logs
+    volumes:
+      - type: bind
+        source: /DATA/AppData/grow-system/mosquitto/data
+        target: /mosquitto/data
+      - type: bind
+        source: /DATA/AppData/grow-system/mosquitto/log
+        target: /mosquitto/log
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grow-grafana
+    ports:
+      - target: 3001
+        published: "3001"
+        protocol: tcp
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_SERVER_ROOT_URL: http://localhost:3001
+    restart: unless-stopped
+    x-casaos:
+      envs:
+        - container: GF_SECURITY_ADMIN_USER
+          description:
+            en_us: Grafana admin username
+          label:
+            en_us: Admin Username
+        - container: GF_SECURITY_ADMIN_PASSWORD
+          description:
+            en_us: Grafana admin password
+          label:
+            en_us: Admin Password
+      ports:
+        - container: "3001"
+          description:
+            en_us: Grafana Web UI
+          protocol: tcp
+      volumes:
+        - container: /var/lib/grafana
+          description:
+            en_us: Grafana data directory
+    volumes:
+      - type: bind
+        source: /DATA/AppData/grow-system/grafana
+        target: /var/lib/grafana
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: nginx
+  description:
+    en_us: Complete IoT grow monitoring system with multi-camera support, sensor tracking, automation, and timelapse. Monitor temperature, humidity, VPD, soil moisture, and control your grow environment remotely.
+  tagline:
+    en_us: Smart Grow Monitoring & Automation
+  developer: GrowMonitoring Team
+  author: GrowMonitoring Team
+  icon: https://raw.githubusercontent.com/your-repo/grow-monitoring/main/icon.png
+  screenshot_link:
+    - https://raw.githubusercontent.com/your-repo/grow-monitoring/main/screenshot1.png
+    - https://raw.githubusercontent.com/your-repo/grow-monitoring/main/screenshot2.png
+  thumbnail: https://raw.githubusercontent.com/your-repo/grow-monitoring/main/thumbnail.png
+  title:
+    en_us: Grow Monitoring System
+  category: IoT & Home Automation
+  port_map: "8080"
+  scheme: http
+  index: /
+  tips:
+    before_install:
+      en_us: |
+        Before installation:
+        1. Ensure you have at least 2GB of free disk space
+        2. Prepare your MQTT credentials
+        3. Set strong passwords for MongoDB and Grafana
+        4. (Optional) Prepare SSL certificates for HTTPS
+
+        Default credentials:
+        - Grafana: admin / (set during install)
+        - MongoDB: admin / (set during install)
+
+        The system will be available at:
+        - Web UI: http://your-ip:8080
+        - Grafana: http://your-ip:3001
+        - MQTT: mqtt://your-ip:1883

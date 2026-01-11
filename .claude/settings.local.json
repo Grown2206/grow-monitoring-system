@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(wc:*)",
+      "Bash(docker build:*)",
+      "Bash(where:*)",
+      "Bash(npm run build:*)",
+      "Bash(grep:*)",
+      "Bash(for:*)",
+      "Bash(do sed -i \"s|from ''\\.\\.\\.\\./|from ''../../|g\" \"$f\")",
+      "Bash(done)",
+      "Bash(do grep -q \"from ''\\.\\.\\.\\.utils\" \"$f\")",
+      "Bash(echo:*)",
+      "Bash(ls:*)",
+      "Bash(npm run dev:*)",
+      "Bash(dir:*)",
+      "Bash(cat:*)",
+      "Bash(npm start)",
+      "Bash(curl:*)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"Get-Process node | Stop-Process -Force\")",
+      "Bash(findstr:*)",
+      "Bash(netstat:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(node -e:*)",
+      "Bash(npx web-push:*)",
+      "Bash(move:*)",
+      "Bash(mkdir:*)",
+      "Bash(test:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

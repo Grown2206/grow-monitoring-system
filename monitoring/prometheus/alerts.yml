@@ -1,0 +1,98 @@
+groups:
+  - name: grow_system_alerts
+    interval: 30s
+    rules:
+      # Service Down Alerts
+      - alert: BackendDown
+        expr: up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: backend
+        annotations:
+          summary: "Backend Service Down"
+          description: "Grow Monitoring Backend has been down for more than 1 minute."
+
+      - alert: MongoDBDown
+        expr: up{job="mongodb"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "MongoDB Service Down"
+          description: "MongoDB database has been down for more than 2 minutes."
+
+      - alert: MosquittoDown
+        expr: up{job="mosquitto"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: mqtt
+        annotations:
+          summary: "MQTT Broker Down"
+          description: "Mosquitto MQTT broker has been down for more than 2 minutes."
+
+      # High Resource Usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High Memory Usage"
+          description: "Memory usage is above 90% for more than 5 minutes."
+
+      - alert: HighCPUUsage
+        expr: 100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU Usage"
+          description: "CPU usage is above 80% for more than 5 minutes."
+
+      # Disk Space
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 20
+        for: 5m
+        labels:
+          severity: warning
+          component: storage
+        annotations:
+          summary: "Low Disk Space"
+          description: "Disk space is below 20% on root partition."
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
+        for: 2m
+        labels:
+          severity: critical
+          component: storage
+        annotations:
+          summary: "Critical Disk Space"
+          description: "Disk space is below 10% on root partition."
+
+      # Response Time
+      - alert: HighResponseTime
+        expr: http_request_duration_seconds{quantile="0.95"} > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High API Response Time"
+          description: "95th percentile response time is above 2 seconds for more than 5 minutes."
+
+      # Error Rate
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "High Error Rate"
+          description: "HTTP 5xx error rate is above 5% for more than 5 minutes."
