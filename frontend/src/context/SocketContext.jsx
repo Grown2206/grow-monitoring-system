@@ -46,13 +46,17 @@ export const SocketProvider = ({ children }) => {
   });
 
   useEffect(() => {
-    // Automatische Erkennung der Backend-URL
-    // Wenn Frontend auf localhost:5173 läuft, suche Backend auf localhost:3000
-    const backendUrl = `http://${window.location.hostname}:3000`;
-    
+    // In Produktion: Verbinde über gleichen Host (Nginx reverse proxy)
+    // In Entwicklung (localhost:5173): Verbinde direkt zu Backend auf :3000
+    const isDev = window.location.port === '5173';
+    const backendUrl = isDev
+      ? `http://${window.location.hostname}:3000`
+      : window.location.origin; // Nutzt gleichen Host+Port wie Frontend
+
     console.log("Verbinde zu Backend:", backendUrl);
 
     const newSocket = io(backendUrl, {
+      path: '/socket.io',
       transports: ['websocket', 'polling'], // Versuche beide Methoden
       reconnectionAttempts: 10,
     });
