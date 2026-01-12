@@ -50,7 +50,8 @@
 const char* WIFI_SSID = "WLAN-915420";
 const char* WIFI_PASSWORD = "78118805138223696181";
 
-const char* MQTT_SERVER = "test.mosquitto.org"; 
+// MQTT Broker auf CasaOS Server (192.168.2.169)
+const char* MQTT_SERVER = "192.168.2.169";
 const int MQTT_PORT = 1883;
 
 // EINZIGARTIGE TOPICS (MÜSSEN MIT BACKEND ÜBEREINSTIMMEN)
