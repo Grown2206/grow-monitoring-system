@@ -2,11 +2,13 @@ const mongoose = require('mongoose');
 
 const connectDB = async () => {
   try {
-    // Timeout auf 2000ms setzen, damit er nicht ewig wartet
-    const conn = await mongoose.connect(process.env.DB_URI || 'mongodb://127.0.0.1:27017/growmonitor', {
+    // Support both MONGODB_URI (standard) and DB_URI (legacy) environment variables
+    const mongoUri = process.env.MONGODB_URI || process.env.DB_URI || 'mongodb://127.0.0.1:27017/growmonitor';
+
+    const conn = await mongoose.connect(mongoUri, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
-      serverSelectionTimeoutMS: 2000 
+      serverSelectionTimeoutMS: 5000 // Increased timeout for Docker networking
     });
 
     console.log(`✅ MongoDB Verbunden: ${conn.connection.host}`);
