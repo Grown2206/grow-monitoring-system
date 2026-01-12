@@ -52,23 +52,21 @@ app.use(cors({
     // Erlaube Requests ohne Origin (z.B. mobile Apps, Postman)
     if (!origin) return callback(null, true);
 
-    // In Development: Erlaube alle localhost und lokale IPs (192.168.x.x, 10.x.x.x)
-    if (isDevelopment) {
-      const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
-      const isLocalNetwork = /https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin);
+    const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
+    const isLocalNetwork = /https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin);
 
-      if (isLocalhost || isLocalNetwork || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+    // In Development: Erlaube alle localhost und lokale IPs
+    if (isDevelopment && (isLocalhost || isLocalNetwork || allowedOrigins.includes(origin))) {
+      return callback(null, true);
     }
 
-    // In Production: Nur explizit erlaubte Origins
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`⚠️ CORS blocked request from: ${origin}`);
-      callback(new Error('CORS-Fehler: Zugriff von dieser Domain nicht erlaubt'));
+    // In Production: Erlaube explizit konfigurierte Origins + lokale Netzwerk-IPs
+    if (allowedOrigins.includes(origin) || isLocalNetwork) {
+      return callback(null, true);
     }
+
+    console.warn(`⚠️ CORS blocked request from: ${origin}`);
+    callback(new Error('CORS-Fehler: Zugriff von dieser Domain nicht erlaubt'));
   },
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   credentials: true
@@ -131,23 +129,21 @@ const io = new Server(server, {
       // Erlaube Requests ohne Origin (z.B. mobile Apps)
       if (!origin) return callback(null, true);
 
+      const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
+      const isLocalNetwork = /https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin);
+
       // In Development: Erlaube alle localhost und lokale IPs
-      if (isDevelopment) {
-        const isLocalhost = origin.includes('localhost') || origin.includes('127.0.0.1');
-        const isLocalNetwork = /https?:\/\/(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)/.test(origin);
-
-        if (isLocalhost || isLocalNetwork || allowedOrigins.includes(origin)) {
-          return callback(null, true);
-        }
+      if (isDevelopment && (isLocalhost || isLocalNetwork || allowedOrigins.includes(origin))) {
+        return callback(null, true);
       }
 
-      // In Production: Nur explizit erlaubte Origins
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.warn(`⚠️ Socket.io CORS blocked: ${origin}`);
-        callback(new Error('CORS-Fehler: Zugriff von dieser Domain nicht erlaubt'));
+      // In Production: Erlaube explizit konfigurierte Origins + lokale Netzwerk-IPs
+      if (allowedOrigins.includes(origin) || isLocalNetwork) {
+        return callback(null, true);
       }
+
+      console.warn(`⚠️ Socket.io CORS blocked: ${origin}`);
+      callback(new Error('CORS-Fehler: Zugriff von dieser Domain nicht erlaubt'));
     },
     methods: ["GET", "POST"],
     credentials: true
