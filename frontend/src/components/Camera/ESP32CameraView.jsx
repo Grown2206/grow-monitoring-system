@@ -86,7 +86,7 @@ const ESP32CameraView = () => {
     }
   };
 
-  // Alle Kameras überprüfen
+  // Alle Kameras überprüfen (ohne IP zu ändern!)
   const checkAllCameras = async () => {
     const updates = await Promise.all(
       cameras.map(async (cam) => {
@@ -98,7 +98,12 @@ const ESP32CameraView = () => {
         };
       })
     );
-    setCameras(updates);
+    // Nur Status und lastUpdate ändern, nicht die ganze Camera neu setzen
+    setCameras(prev => prev.map((cam, index) => ({
+      ...cam,
+      status: updates[index].status,
+      lastUpdate: updates[index].lastUpdate
+    })));
   };
 
   // Beim Start IP-Adressen aus LocalStorage laden
