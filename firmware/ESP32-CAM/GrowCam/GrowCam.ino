@@ -163,20 +163,32 @@ bool captureAndUpload() {
   Serial.printf("Foto aufgenommen: %d bytes\n", fb->len);
 
   // HTTP Upload zum Backend
+  WiFiClient client;
   HTTPClient http;
 
-  // WiFiClient für HTTP
-  WiFiClient client;
   http.begin(client, BACKEND_URL);
   http.addHeader("Content-Type", "image/jpeg");
   http.addHeader("X-Camera-Name", CAM_NAME);
+  http.setTimeout(30000); // 30 Sekunden timeout
 
+  Serial.printf("📤 Sende %d bytes an %s\n", fb->len, BACKEND_URL);
   int httpCode = http.POST(fb->buf, fb->len);
 
   if(httpCode == 200) {
     Serial.println("✅ Foto erfolgreich hochgeladen");
+    String response = http.getString();
+    Serial.println("Response: " + response);
+  } else if (httpCode > 0) {
+    Serial.printf("❌ Upload fehlgeschlagen - HTTP Code: %d\n", httpCode);
+    String response = http.getString();
+    Serial.println("Server Response: " + response);
   } else {
-    Serial.printf("❌ Upload fehlgeschlagen: %d\n", httpCode);
+    Serial.printf("❌ Verbindungsfehler: %d (", httpCode);
+    if(httpCode == -1) Serial.print("Connection refused");
+    else if(httpCode == -3) Serial.print("Connection timeout");
+    else if(httpCode == -11) Serial.print("Read timeout");
+    else Serial.print("Unknown");
+    Serial.println(")");
   }
 
   http.end();
