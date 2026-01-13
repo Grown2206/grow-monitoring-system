@@ -29,19 +29,19 @@ exports.uploadFromCamera = async (req, res, next) => {
     const timestamp = new Date();
     const filename = `${cameraName}_${timestamp.getTime()}.jpg`;
     const uploadDir = path.join(__dirname, '../../timelapse/captures');
-    const filepath = path.join(uploadDir, filename);
+    const filePath = path.join(uploadDir, filename);
 
     // Erstelle Upload-Verzeichnis falls nicht vorhanden
     await fs.mkdir(uploadDir, { recursive: true });
 
     // Speichere Bild
-    await fs.writeFile(filepath, imageBuffer);
+    await fs.writeFile(filePath, imageBuffer);
 
     // Speichere in MongoDB
     const capture = await TimelapseCapture.create({
       cameraName,
       filename,
-      filepath,
+      filePath,
       size: imageBuffer.length,
       timestamp,
       metadata: {
