@@ -33,8 +33,8 @@
 const char* WIFI_SSID = "WLAN-915420";
 const char* WIFI_PASSWORD = "78118805138223696181";
 
-// Backend Server (CasaOS) - Via Nginx auf Port 8080
-const char* BACKEND_URL = "http://192.168.2.169:8080/api/timelapse/upload";
+// Backend Server (CasaOS) - Direkt Port 3000 (ohne Nginx)
+const char* BACKEND_URL = "http://192.168.2.169:3000/api/timelapse/upload";
 const char* CAM_NAME = "cam1";  // Eindeutige Kamera-ID (cam1, cam2, etc.)
 
 // Timelapse Einstellungen
