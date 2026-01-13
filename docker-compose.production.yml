@@ -54,8 +54,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: grow-backend
-    expose:
-      - "3000"
+    ports:
+      - "3000:3000"  # Expose für ESP32-CAM Zugriff
     env_file:
       - .env.production
     environment:
