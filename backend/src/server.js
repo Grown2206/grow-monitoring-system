@@ -113,7 +113,15 @@ app.use('/api', apiLimiter);
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/register', authLimiter);
 
-// 4. Body Parser
+// WICHTIG: ESP32-CAM Upload Route MUSS VOR express.json() kommen!
+// Raw JPEG Upload für ESP32-CAM (ohne JSON-Parsing)
+const timelapseController = require('./controllers/timelapseController');
+app.post('/api/timelapse/upload',
+  express.raw({ type: 'image/jpeg', limit: '10mb' }),
+  timelapseController.uploadFromCamera
+);
+
+// 4. Body Parser (für alle anderen Routes)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 

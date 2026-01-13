@@ -10,17 +10,8 @@ const { optionalAuth } = require('../middleware/auth');
 
 // ===== CAPTURES =====
 
-/**
- * POST /api/timelapse/upload
- * Upload von ESP32-CAM (kein Auth erforderlich für IoT Geräte)
- * Body: Raw JPEG image data
- * Headers:
- *   - X-Camera-Name: cam1, cam2, etc.
- */
-router.post('/upload',
-  express.raw({ type: 'image/jpeg', limit: '10mb' }),
-  timelapseController.uploadFromCamera
-);
+// HINWEIS: Die /upload Route ist direkt in server.js registriert (VOR express.json()),
+// da ESP32-CAM raw JPEG Daten sendet und NICHT JSON-geparst werden darf!
 
 /**
  * POST /api/timelapse/capture
