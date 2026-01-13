@@ -1,0 +1,54 @@
+name: Grow Monitoring System
+services:
+  grow-monitoring:
+    image: nginx:alpine
+    container_name: grow-monitoring-shortcut
+    restart: always
+    network_mode: "host"
+    labels:
+      icon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/home-assistant.png
+    x-casaos:
+      envs: []
+      ports: []
+      volumes: []
+      devices: []
+    environment:
+      - DISPLAY_URL=http://192.168.2.169:8080
+
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: grow-monitoring
+  description:
+    en_us: Grow Monitoring System - Automated plant monitoring and control system with real-time sensor data, MQTT integration, and smart automation.
+  tagline:
+    en_us: Smart Grow System
+  developer: Grown2206
+  author: Grown2206
+  icon: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/home-assistant.png
+  screenshot_link:
+    - https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/home-assistant.png
+  thumbnail: https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/home-assistant.png
+  title:
+    en_us: Grow Monitoring
+  category: Automation
+  port_map: "8080"
+  scheme: http
+  index: /
+  store_app_id: grow-monitoring-system
+  tips:
+    before_install:
+      en_us: |
+        Access the Grow Monitoring System at: http://192.168.2.169:8080
+
+        Default credentials will be created on first login.
+
+        Features:
+        - Real-time sensor monitoring (Temperature, Humidity, Light, Soil moisture)
+        - MQTT integration for ESP32 sensors
+        - Automated irrigation and climate control
+        - VPD optimization
+        - Grow recipes and scheduling
+        - Push notifications
+        - Grafana dashboards
