@@ -113,9 +113,9 @@ services:
       context: ./mosquitto
       dockerfile: Dockerfile
     container_name: grow-mosquitto
-    expose:
-      - "1883"   # MQTT
-      - "9001"   # WebSocket
+    ports:
+      - "1883:1883"   # MQTT - exposed to network for ESP32
+      - "9001:9001"   # WebSocket
     volumes:
       - ./mosquitto/config:/mosquitto/config:ro
       - mosquitto-data:/mosquitto/data

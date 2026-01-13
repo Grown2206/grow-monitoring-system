@@ -322,6 +322,10 @@ void setup_wifi() {
     Serial.print(".");
   }
   Serial.println("\nWLAN verbunden!");
+  Serial.print("IP-Adresse: ");
+  Serial.println(WiFi.localIP());
+  Serial.print("Verbinde zu MQTT Broker: ");
+  Serial.println(MQTT_SERVER);
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
