@@ -17,9 +17,8 @@ import Login from './components/Auth/Login';
 import NutrientDashboard from './components/Nutrients/NutrientDashboard';
 import VPDDashboard from './components/VPD/VPDDashboard';
 import UnifiedCalibrationDashboard from './components/Sensors/UnifiedCalibrationDashboard';
-import TimelapseDashboard from './components/Timelapse/TimelapseDashboard';
 import MaintenanceDashboard from './components/Maintenance/MaintenanceDashboard';
-import MultiCameraView from './components/Camera/MultiCameraView';
+import ESP32CameraView from './components/Camera/ESP32CameraView';
 import AutomationEngine from './components/Automation/AutomationEngine';
 import SmartGrowControl from './components/SmartGrow/SmartGrowControl';
 import GrowSimulator from './components/GrowSimulator';
@@ -209,9 +208,8 @@ function AppContent() {
       case 'nutrients': return 'Nährstoff-Management';
       case 'calibration': return 'Sensor Kalibrierung';
       case 'vpd': return 'VPD Control';
-      case 'timelapse': return 'Timelapse Generator';
       case 'maintenance': return 'Wartungsplan';
-      case 'cameras': return 'Multi-Camera System';
+      case 'cameras': return 'ESP32-CAM Live View';
       case 'automation': return 'Automation Engine';
       case 'simulator': return 'Grow-Simulator';
       case 'settings': return 'Einstellungen';
@@ -270,8 +268,7 @@ function AppContent() {
         label: 'Media',
         icon: <Camera size={20} />,
         items: [
-          { id: 'cameras', icon: <Camera size={18} />, label: 'Multi-Camera' },
-          { id: 'timelapse', icon: <Film size={18} />, label: 'Timelapse' }
+          { id: 'cameras', icon: <Camera size={18} />, label: 'ESP32-CAM Live' }
         ]
       },
       {
@@ -407,9 +404,8 @@ function AppContent() {
                 {activeTab === 'nutrients' && <NutrientDashboard />}
                 {activeTab === 'calibration' && <UnifiedCalibrationDashboard />}
                 {activeTab === 'vpd' && <VPDDashboard />}
-                {activeTab === 'timelapse' && <TimelapseDashboard />}
                 {activeTab === 'maintenance' && <MaintenanceDashboard />}
-                {activeTab === 'cameras' && <MultiCameraView />}
+                {activeTab === 'cameras' && <ESP32CameraView />}
                 {activeTab === 'automation' && <AutomationEngine />}
                 {activeTab === 'simulator' && <GrowSimulator />}
                 {activeTab === 'settings' && <Settings />}
