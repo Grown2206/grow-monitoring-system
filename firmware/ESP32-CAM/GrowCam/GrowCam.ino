@@ -164,7 +164,10 @@ bool captureAndUpload() {
 
   // HTTP Upload zum Backend
   HTTPClient http;
-  http.begin(BACKEND_URL);
+
+  // WiFiClient für HTTP
+  WiFiClient client;
+  http.begin(client, BACKEND_URL);
   http.addHeader("Content-Type", "image/jpeg");
   http.addHeader("X-Camera-Name", CAM_NAME);
 

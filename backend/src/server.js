@@ -30,6 +30,9 @@ connectDB().then(async () => {
 const app = express();
 const server = http.createServer(app);
 
+// Trust proxy (wichtig für Nginx reverse proxy)
+app.set('trust proxy', true);
+
 // ========================================
 // 🔒 SECURITY MIDDLEWARE
 // ========================================
