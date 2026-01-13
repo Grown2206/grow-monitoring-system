@@ -47,17 +47,42 @@ const ESP32CameraView = () => {
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`http://${camera.ip}/`, {
+      // Versuche Stream-URL statt Root, da einige ESP32 nur /stream haben
+      const response = await fetch(`http://${camera.ip}/stream`, {
         method: 'HEAD',
+        mode: 'no-cors', // Umgehe CORS für Status-Check
         signal: controller.signal
       });
 
       clearTimeout(timeoutId);
-      return response.ok ? 'online' : 'offline';
+      // Bei no-cors ist response.ok nicht verfügbar, daher prüfen wir type
+      return response.type === 'opaque' ? 'online' : 'offline';
     } catch (error) {
-      return 'offline';
+      // Wenn Fetch fehlschlägt, versuche mit Image-Test
+      try {
+        return await new Promise((resolve) => {
+          const img = new Image();
+          const timeout = setTimeout(() => {
+            img.src = '';
+            resolve('offline');
+          }, 3000);
+
+          img.onload = () => {
+            clearTimeout(timeout);
+            resolve('online');
+          };
+          img.onerror = () => {
+            clearTimeout(timeout);
+            resolve('offline');
+          };
+
+          img.src = `http://${camera.ip}/capture?t=${Date.now()}`;
+        });
+      } catch {
+        return 'offline';
+      }
     }
   };
 

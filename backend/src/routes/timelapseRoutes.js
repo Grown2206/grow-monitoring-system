@@ -17,7 +17,10 @@ const { optionalAuth } = require('../middleware/auth');
  * Headers:
  *   - X-Camera-Name: cam1, cam2, etc.
  */
-router.post('/upload', timelapseController.uploadFromCamera);
+router.post('/upload',
+  express.raw({ type: 'image/jpeg', limit: '10mb' }),
+  timelapseController.uploadFromCamera
+);
 
 /**
  * POST /api/timelapse/capture
