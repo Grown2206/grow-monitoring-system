@@ -10,6 +10,65 @@ const fs = require('fs').promises;
  */
 
 /**
+ * POST /api/timelapse/upload
+ * Upload von ESP32-CAM
+ */
+exports.uploadFromCamera = async (req, res, next) => {
+  try {
+    const cameraName = req.headers['x-camera-name'] || 'unknown';
+    const imageBuffer = req.body;
+
+    if (!Buffer.isBuffer(imageBuffer) || imageBuffer.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Kein gültiges Bild empfangen'
+      });
+    }
+
+    // Erstelle Filename mit Timestamp
+    const timestamp = new Date();
+    const filename = `${cameraName}_${timestamp.getTime()}.jpg`;
+    const uploadDir = path.join(__dirname, '../../timelapse/captures');
+    const filepath = path.join(uploadDir, filename);
+
+    // Erstelle Upload-Verzeichnis falls nicht vorhanden
+    await fs.mkdir(uploadDir, { recursive: true });
+
+    // Speichere Bild
+    await fs.writeFile(filepath, imageBuffer);
+
+    // Speichere in MongoDB
+    const capture = await TimelapseCapture.create({
+      cameraName,
+      filename,
+      filepath,
+      size: imageBuffer.length,
+      timestamp,
+      metadata: {
+        format: 'jpeg'
+      }
+    });
+
+    console.log(`📸 Foto von ${cameraName} empfangen: ${filename} (${imageBuffer.length} bytes)`);
+
+    res.status(200).json({
+      success: true,
+      message: 'Foto erfolgreich hochgeladen',
+      data: {
+        id: capture._id,
+        cameraName: capture.cameraName,
+        filename: capture.filename,
+        size: capture.size,
+        timestamp: capture.timestamp
+      }
+    });
+  } catch (error) {
+    console.error('Fehler beim Upload:', error);
+    next(error);
+  }
+};
+
+/**
  * POST /api/timelapse/capture
  * Erfasse manuellen Snapshot
  */
