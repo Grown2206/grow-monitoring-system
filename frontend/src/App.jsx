@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Toaster } from 'react-hot-toast';
 import { SocketProvider, useSocket } from './context/SocketContext';
 import { AlertProvider, useAlert } from './context/AlertContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -6,25 +7,26 @@ import { ThemeProvider, useTheme } from './theme';
 import ThemeSwitcher from './components/ThemeSwitcher';
 import Dashboard from './components/Dashboard';
 import Plants from './components/Plants';
+import PlantManagement from './components/Plants/PlantManagement';
 import Controls from './components/Controls';
-import Analytics from './components/Analytics';
-import CalendarView from './components/CalendarView';
+import Analytics from './components/Analytics/AnalyticsV2';
+import CalendarPage from './components/Calendar';
 import Hardware from './components/Hardware';
 import AIConsultant from './components/AIConsultant';
 import Settings from './components/Settings';
-import GrowRecipes from './components/GrowRecipes';
 import Login from './components/Auth/Login';
-import NutrientDashboard from './components/Nutrients/NutrientDashboard';
+import NutrientPage from './components/Nutrients';
 import VPDDashboard from './components/VPD/VPDDashboard';
 import UnifiedCalibrationDashboard from './components/Sensors/UnifiedCalibrationDashboard';
 import MaintenanceDashboard from './components/Maintenance/MaintenanceDashboard';
 import ESP32CameraView from './components/Camera/ESP32CameraView';
-import AutomationEngine from './components/Automation/AutomationEngine';
+import CameraStudio from './components/Camera/CameraStudio';
+import AutomationDashboard from './components/Automation/AutomationDashboard';
 import SmartGrowControl from './components/SmartGrow/SmartGrowControl';
-import GrowSimulator from './components/GrowSimulator';
+import TimelapseDashboard from './components/Timelapse/TimelapseDashboard';
 import {
   LayoutDashboard, Sprout, Settings as SettingsIcon, BarChart3,
-  Calendar, Cpu, Bot, Sliders, Bell, Menu, X, Leaf, BookOpen, LogOut, Loader,
+  Calendar, Cpu, Bot, Sliders, Bell, Menu, X, Leaf, LogOut, Loader,
   Beaker, Droplet, Zap as ZapIcon, Film, Wrench, Camera, ChevronDown, ChevronRight,
   TreePine, Activity, Cog, Sparkles, Gauge
 } from 'lucide-react';
@@ -201,7 +203,6 @@ function AppContent() {
       case 'dashboard': return 'System Übersicht';
       case 'smartcontrol': return 'Smart Grow Control Center';
       case 'plants': return 'Pflanzen Management';
-      case 'recipes': return 'Grow-Rezepte';
       case 'calendar': return 'Grow Kalender';
       case 'analytics': return 'Daten & Analyse';
       case 'controls': return 'Manuelle Steuerung';
@@ -209,9 +210,10 @@ function AppContent() {
       case 'calibration': return 'Sensor Kalibrierung';
       case 'vpd': return 'VPD Control';
       case 'maintenance': return 'Wartungsplan';
+      case 'camerastudio': return 'Camera Studio';
       case 'cameras': return 'ESP32-CAM Live View';
       case 'automation': return 'Automation Engine';
-      case 'simulator': return 'Grow-Simulator';
+      case 'timelapse': return 'Timelapse';
       case 'settings': return 'Einstellungen';
       case 'hardware': return 'System Status';
       case 'ai': return 'AI Consultant';
@@ -238,9 +240,7 @@ function AppContent() {
         icon: <TreePine size={20} />,
         items: [
           { id: 'plants', icon: <Sprout size={18} />, label: 'Pflanzen' },
-          { id: 'recipes', icon: <BookOpen size={18} />, label: 'Rezepte' },
-          { id: 'calendar', icon: <Calendar size={18} />, label: 'Kalender' },
-          { id: 'simulator', icon: <Sparkles size={18} />, label: 'Simulator' }
+          { id: 'calendar', icon: <Calendar size={18} />, label: 'Kalender' }
         ]
       },
       {
@@ -259,7 +259,7 @@ function AppContent() {
         icon: <Cog size={20} />,
         items: [
           { id: 'automation', icon: <ZapIcon size={18} />, label: 'Automation Rules' },
-          { id: 'nutrients', icon: <Beaker size={18} />, label: 'Nährstoffe & Dosing' },
+          { id: 'nutrients', icon: <Beaker size={18} />, label: 'BioBizz Nährstoffe' },
           { id: 'controls', icon: <Sliders size={18} />, label: 'Manuelle Steuerung' }
         ]
       },
@@ -268,7 +268,9 @@ function AppContent() {
         label: 'Media',
         icon: <Camera size={20} />,
         items: [
-          { id: 'cameras', icon: <Camera size={18} />, label: 'ESP32-CAM Live' }
+          { id: 'camerastudio', icon: <Camera size={18} />, label: 'Camera Studio' },
+          { id: 'cameras', icon: <Camera size={18} />, label: 'ESP32-CAM (Legacy)' },
+          { id: 'timelapse', icon: <Film size={18} />, label: 'Timelapse' }
         ]
       },
       {
@@ -394,20 +396,20 @@ function AppContent() {
               <div className="max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
                 {activeTab === 'dashboard' && <Dashboard changeTab={setActiveTab} />}
                 {activeTab === 'smartcontrol' && <SmartGrowControl />}
-                {activeTab === 'plants' && <Plants />}
-                {activeTab === 'recipes' && <GrowRecipes />}
-                {activeTab === 'calendar' && <CalendarView />}
+                {activeTab === 'plants' && <PlantManagement />}
+                {activeTab === 'calendar' && <CalendarPage />}
                 {activeTab === 'ai' && <AIConsultant />}
                 {activeTab === 'analytics' && <Analytics />}
                 {activeTab === 'hardware' && <Hardware />}
                 {activeTab === 'controls' && <Controls />}
-                {activeTab === 'nutrients' && <NutrientDashboard />}
+                {activeTab === 'nutrients' && <NutrientPage />}
                 {activeTab === 'calibration' && <UnifiedCalibrationDashboard />}
                 {activeTab === 'vpd' && <VPDDashboard />}
                 {activeTab === 'maintenance' && <MaintenanceDashboard />}
+                {activeTab === 'camerastudio' && <CameraStudio />}
                 {activeTab === 'cameras' && <ESP32CameraView />}
-                {activeTab === 'automation' && <AutomationEngine />}
-                {activeTab === 'simulator' && <GrowSimulator />}
+                {activeTab === 'automation' && <AutomationDashboard />}
+                {activeTab === 'timelapse' && <TimelapseDashboard />}
                 {activeTab === 'settings' && <Settings />}
               </div>
             </main>
@@ -424,6 +426,31 @@ export default function App() {
       <AuthProvider>
         <AlertProvider>
           <AppContent />
+          <Toaster
+            position="bottom-right"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#1e293b',
+                color: '#f1f5f9',
+                borderRadius: '12px',
+                border: '1px solid #334155',
+                padding: '12px 16px',
+              },
+              success: {
+                iconTheme: {
+                  primary: '#10b981',
+                  secondary: '#f1f5f9',
+                },
+              },
+              error: {
+                iconTheme: {
+                  primary: '#ef4444',
+                  secondary: '#f1f5f9',
+                },
+              },
+            }}
+          />
         </AlertProvider>
       </AuthProvider>
     </ThemeProvider>
