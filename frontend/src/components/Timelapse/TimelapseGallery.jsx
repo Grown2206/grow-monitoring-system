@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Camera, Trash2, Download, Calendar, Filter, Grid3x3, List } from 'lucide-react';
+import { Camera, Trash2, Download, Calendar, Filter, Grid3x3, List, Loader2, RefreshCw } from 'lucide-react';
 import { api } from '../../utils/api';
+import toast from '../../utils/toast';
+import { useTheme } from '../../theme';
 
 /**
  * Timelapse Gallery
  * Grid-Ansicht aller erfassten Snapshots
  */
-const TimelapseGallery = ({ onCaptureSelect }) => {
+const TimelapseGallery = ({ onCaptureSelect, theme: propTheme }) => {
+  const { currentTheme } = useTheme();
+  const theme = propTheme || currentTheme;
   const [captures, setCaptures] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState(false);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
   const [selectedCaptures, setSelectedCaptures] = useState([]);
   const [filters, setFilters] = useState({
@@ -52,9 +57,10 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
     try {
       await api.delete(`/timelapse/captures/${captureId}`);
       setCaptures(captures.filter(c => c._id !== captureId));
+      toast.success('Capture gelöscht');
     } catch (error) {
-      console.error('❌ Error deleting capture:', error);
-      alert('Fehler beim Löschen');
+      console.error('Error deleting capture:', error);
+      toast.error('Fehler beim Löschen');
     }
   };
 
@@ -70,22 +76,27 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
     if (selectedCaptures.length === 0) return;
     if (!confirm(`${selectedCaptures.length} Captures wirklich löschen?`)) return;
 
+    setDeleting(true);
     try {
       await Promise.all(
         selectedCaptures.map(id => api.delete(`/timelapse/captures/${id}`))
       );
       setCaptures(captures.filter(c => !selectedCaptures.includes(c._id)));
+      toast.success(`${selectedCaptures.length} Captures gelöscht`);
       setSelectedCaptures([]);
     } catch (error) {
-      console.error('❌ Error deleting captures:', error);
-      alert('Fehler beim Löschen');
+      console.error('Error deleting captures:', error);
+      toast.error('Fehler beim Löschen');
+    } finally {
+      setDeleting(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+      <div className="flex flex-col items-center justify-center h-64 gap-3" style={{ color: theme.text.muted }}>
+        <Loader2 size={32} className="animate-spin" style={{ color: theme.accent.color }} />
+        <span className="text-sm">Lade Captures...</span>
       </div>
     );
   }
@@ -95,36 +106,51 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
       {/* Header & Controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Camera className="text-emerald-500" size={24} />
+          <Camera style={{ color: theme.accent.color }} size={24} />
           <div>
-            <h3 className="text-lg font-semibold">Capture Gallery</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <h3 className="text-lg font-semibold" style={{ color: theme.text.primary }}>
+              Capture Gallery
+            </h3>
+            <p className="text-sm" style={{ color: theme.text.secondary }}>
               {captures.length} Snapshots
-              {selectedCaptures.length > 0 && ` • ${selectedCaptures.length} ausgewählt`}
+              {selectedCaptures.length > 0 && (
+                <span style={{ color: theme.accent.color }}> • {selectedCaptures.length} ausgewählt</span>
+              )}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          {/* Refresh Button */}
+          <button
+            onClick={fetchCaptures}
+            disabled={loading}
+            className="p-2 rounded-lg transition-colors"
+            style={{ backgroundColor: theme.bg.hover, color: theme.text.muted }}
+            title="Aktualisieren"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+
           {/* View Mode Toggle */}
-          <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+          <div className="flex rounded-lg p-1" style={{ backgroundColor: theme.bg.hover }}>
             <button
               onClick={() => setViewMode('grid')}
-              className={`p-2 rounded ${
-                viewMode === 'grid'
-                  ? 'bg-white dark:bg-gray-700 shadow-sm'
-                  : 'text-gray-500'
-              }`}
+              className="p-2 rounded"
+              style={{
+                backgroundColor: viewMode === 'grid' ? theme.bg.card : 'transparent',
+                color: viewMode === 'grid' ? theme.text.primary : theme.text.muted
+              }}
             >
               <Grid3x3 size={18} />
             </button>
             <button
               onClick={() => setViewMode('list')}
-              className={`p-2 rounded ${
-                viewMode === 'list'
-                  ? 'bg-white dark:bg-gray-700 shadow-sm'
-                  : 'text-gray-500'
-              }`}
+              className="p-2 rounded"
+              style={{
+                backgroundColor: viewMode === 'list' ? theme.bg.card : 'transparent',
+                color: viewMode === 'list' ? theme.text.primary : theme.text.muted
+              }}
             >
               <List size={18} />
             </button>
@@ -134,23 +160,37 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
           {selectedCaptures.length > 0 && (
             <button
               onClick={deleteSelected}
-              className="flex items-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+              disabled={deleting}
+              className="flex items-center gap-2 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+              style={{ backgroundColor: '#ef4444', color: '#fff' }}
             >
-              <Trash2 size={18} />
-              Löschen ({selectedCaptures.length})
+              {deleting ? (
+                <Loader2 size={18} className="animate-spin" />
+              ) : (
+                <Trash2 size={18} />
+              )}
+              {selectedCaptures.length}
             </button>
           )}
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex items-center gap-3 bg-white dark:bg-gray-800 p-4 rounded-lg">
-        <Filter size={18} className="text-gray-500" />
+      <div
+        className="flex flex-wrap items-center gap-3 p-4 rounded-xl border"
+        style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default }}
+      >
+        <Filter size={18} style={{ color: theme.text.muted }} />
 
         <select
           value={filters.phase}
           onChange={(e) => setFilters({ ...filters, phase: e.target.value })}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+          className="px-3 py-2 rounded-lg text-sm"
+          style={{
+            backgroundColor: theme.bg.hover,
+            borderColor: theme.border.default,
+            color: theme.text.primary
+          }}
         >
           <option value="all">Alle Phasen</option>
           <option value="seedling">Keimling</option>
@@ -162,7 +202,12 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
         <select
           value={filters.sortBy}
           onChange={(e) => setFilters({ ...filters, sortBy: e.target.value })}
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm"
+          className="px-3 py-2 rounded-lg text-sm"
+          style={{
+            backgroundColor: theme.bg.hover,
+            borderColor: theme.border.default,
+            color: theme.text.primary
+          }}
         >
           <option value="timestamp">Datum</option>
           <option value="fileSize">Dateigröße</option>
@@ -176,7 +221,11 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
               sortOrder: filters.sortOrder === 'desc' ? 'asc' : 'desc'
             })
           }
-          className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-sm"
+          className="px-3 py-2 rounded-lg text-sm transition-colors"
+          style={{
+            backgroundColor: theme.bg.hover,
+            color: theme.text.primary
+          }}
         >
           {filters.sortOrder === 'desc' ? '↓ Neueste' : '↑ Älteste'}
         </button>
@@ -349,10 +398,17 @@ const TimelapseGallery = ({ onCaptureSelect }) => {
 
       {/* Empty State */}
       {captures.length === 0 && (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <div
+          className="text-center py-12 rounded-xl border"
+          style={{
+            backgroundColor: theme.bg.card,
+            borderColor: theme.border.default,
+            color: theme.text.muted
+          }}
+        >
           <Camera size={48} className="mx-auto mb-4 opacity-50" />
-          <p>Keine Captures gefunden</p>
-          <p className="text-sm mt-1">Starte einen manuellen Snapshot oder aktiviere Auto-Capture</p>
+          <p style={{ color: theme.text.secondary }}>Keine Captures gefunden</p>
+          <p className="text-sm mt-1">Starte einen Snapshot oder aktiviere Auto-Capture</p>
         </div>
       )}
     </div>

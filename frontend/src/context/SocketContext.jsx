@@ -10,7 +10,11 @@ export const SocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [sensorData, setSensorData] = useState({
     temp: 0, humidity: 0, lux: 0, tankLevel: 0, gasLevel: 0,
-    soil: [0,0,0,0,0,0]
+    soil: [0,0,0,0,0,0],
+    heights: [0,0,0,0,0,0],
+    // ENS160 + AHT21 Luftqualität
+    ens160_eco2: 0, ens160_tvoc: 0, ens160_aqi: 0,
+    aht21_temp: 0, aht21_humidity: 0
   });
 
   // Nährstoff-Sensor-Daten

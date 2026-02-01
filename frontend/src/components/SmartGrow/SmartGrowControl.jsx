@@ -1,21 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useTheme } from '../../theme';
-import { useSocket } from '../../context/SocketContext';
+import { useSensorAverages } from '../../hooks/useSensorAverages';
 import { quickActionsAPI } from '../../utils/api';
 import { calculateVPD } from '../../utils/growMath';
+import toast from '../../utils/toast';
+import { Card, Badge, Skeleton } from '../ui';
 import DigitalTwin from './DigitalTwin';
 import PlantGrid from './PlantGrid';
 import AutomationSettings from './AutomationSettings';
 import {
-  Zap, Sparkles, Target, TrendingUp, AlertTriangle, CheckCircle2,
+  Zap, Sparkles, Target, CheckCircle2,
   Droplets, Thermometer, Sun, Wind, Beaker, Clock, Play, Pause,
-  Settings, ArrowRight, Lightbulb, Activity, BarChart3, Cpu,
-  ChevronRight, BookOpen, Calendar, Bot, Octagon, Grid3x3
+  Settings, Activity, BarChart3, Cpu, Loader2,
+  BookOpen, Bot, Octagon, Grid3x3, TrendingUp, Heart
 } from 'lucide-react';
 
 const SmartGrowControl = () => {
   const { currentTheme } = useTheme();
-  const { sensorData } = useSocket();
+  const theme = currentTheme;
+  const { temp: avgTemp, humidity: avgHumidity, light, sensorData, isValid } = useSensorAverages();
   const [activeRecipe, setActiveRecipe] = useState(null);
   const [currentPhase, setCurrentPhase] = useState('vegetative');
   const [autoMode, setAutoMode] = useState(true);
@@ -23,6 +26,7 @@ const SmartGrowControl = () => {
   const [growthStage, setGrowthStage] = useState('vegetative'); // seedling, vegetative, flowering, harvest
   const [plantHealth, setPlantHealth] = useState(85);
   const [viewMode, setViewMode] = useState('grid'); // 'single', 'grid', or 'settings'
+  const [actionLoading, setActionLoading] = useState(null); // Track which action is loading
 
   // Debug: Check if component is rendering
   // console.log('SmartGrowControl rendering', { sensorData, currentTheme });
@@ -42,59 +46,35 @@ const SmartGrowControl = () => {
 
   // Calculate plant health score based on environmental conditions
   useEffect(() => {
-    if (!sensorData) return;
-
-    const { temp, humidity } = getCurrentAverages();
-    if (temp === 0 || humidity === 0) return;
+    if (!isValid) return;
 
     let health = 100;
-    const vpd = calculateVPD(temp, humidity);
+    const vpd = calculateVPD(avgTemp, avgHumidity);
 
     // Temperature penalties
-    if (temp < 18) health -= 30;
-    else if (temp < 20) health -= 15;
-    else if (temp > 32) health -= 30;
-    else if (temp > 28) health -= 10;
+    if (avgTemp < 18) health -= 30;
+    else if (avgTemp < 20) health -= 15;
+    else if (avgTemp > 32) health -= 30;
+    else if (avgTemp > 28) health -= 10;
 
     // Humidity penalties
-    if (humidity < 30) health -= 20;
-    else if (humidity < 40) health -= 10;
-    else if (humidity > 80) health -= 20;
-    else if (humidity > 70) health -= 10;
+    if (avgHumidity < 30) health -= 20;
+    else if (avgHumidity < 40) health -= 10;
+    else if (avgHumidity > 80) health -= 20;
+    else if (avgHumidity > 70) health -= 10;
 
     // VPD penalties
     if (vpd < 0.4 || vpd > 1.6) health -= 25;
     else if (vpd < 0.6 || vpd > 1.4) health -= 15;
 
     // Light penalties
-    const light = sensorData.light_intensity || 0;
     if (light < 20 && growthStage !== 'seedling') health -= 15;
 
     setPlantHealth(Math.max(0, Math.min(100, health)));
-  }, [sensorData, growthStage]);
-
-  // HELPER: Sichere Berechnung der aktuellen Werte
-  const getCurrentAverages = () => {
-    if (!sensorData) return { temp: 0, humidity: 0 };
-
-    // 1. Priorität: Fertiger Durchschnitt vom ESP32 (wenn > 0)
-    if (sensorData.temp > 0 && sensorData.humidity > 0) {
-      return { temp: sensorData.temp, humidity: sensorData.humidity };
-    }
-
-    // 2. Fallback: Manuelle Berechnung (nur Sensoren > 0 beachten!)
-    const temps = [sensorData.temp_bottom, sensorData.temp_middle, sensorData.temp_top].filter(t => t != null && t > 0);
-    const humidities = [sensorData.humidity_bottom, sensorData.humidity_middle, sensorData.humidity_top].filter(h => h != null && h > 0);
-
-    const avgTemp = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
-    const avgHumidity = humidities.length > 0 ? humidities.reduce((a, b) => a + b, 0) / humidities.length : 0;
-
-    return { temp: avgTemp, humidity: avgHumidity };
-  };
+  }, [avgTemp, avgHumidity, light, isValid, growthStage]);
 
   const generateAIRecommendations = () => {
     const recommendations = [];
-    const { temp: avgTemp, humidity: avgHumidity } = getCurrentAverages();
 
     // Temperature check
     if (avgTemp > 28) {
@@ -119,20 +99,17 @@ const SmartGrowControl = () => {
     }
 
     // VPD optimization mit zentraler Funktion
-    const temp = avgTemp || 24;
-    const rh = avgHumidity || 50;
-    // VPD nur berechnen wenn valide Werte da sind
-    if (temp > 0 && rh > 0) {
-        const vpd = calculateVPD(temp, rh);
-        if (vpd > 1.5 || vpd < 0.8) {
+    if (isValid) {
+      const vpd = calculateVPD(avgTemp, avgHumidity);
+      if (vpd > 1.5 || vpd < 0.8) {
         recommendations.push({
-            type: 'tip',
-            icon: <Wind size={16} />,
-            title: 'VPD nicht optimal',
-            message: `VPD: ${vpd.toFixed(2)} kPa - Ziel: 0.8-1.2 kPa`,
-            action: () => quickAction('vpd-optimize', vpd)
+          type: 'tip',
+          icon: <Wind size={16} />,
+          title: 'VPD nicht optimal',
+          message: `VPD: ${vpd.toFixed(2)} kPa - Ziel: 0.8-1.2 kPa`,
+          action: () => quickAction('vpd-optimize', vpd)
         });
-        }
+      }
     }
 
     // Nutrient schedule check
@@ -150,49 +127,52 @@ const SmartGrowControl = () => {
   };
 
   const quickAction = async (action, value) => {
+    setActionLoading(action);
     try {
       let response;
 
       switch (action) {
         case 'fan':
           response = await quickActionsAPI.setFan(value);
-          console.log(`✅ Lüfter auf ${value}% gesetzt`);
+          toast.device('Lüfter', `auf ${value}% gesetzt`, true);
           break;
 
         case 'light':
           response = await quickActionsAPI.setLight(value);
-          console.log(`✅ Licht ${value === 'toggle' ? 'umgeschaltet' : value === 'on' ? 'eingeschaltet' : 'ausgeschaltet'}`);
+          toast.device('Licht', value === 'toggle' ? 'umgeschaltet' : value === 'on' ? 'eingeschaltet' : 'ausgeschaltet', true);
           break;
 
         case 'humidifier':
           response = await quickActionsAPI.setHumidifier(value);
-          console.log(`✅ Luftbefeuchter ${value === 'on' ? 'eingeschaltet' : 'ausgeschaltet'}`);
+          toast.device('Luftbefeuchter', value === 'on' ? 'eingeschaltet' : 'ausgeschaltet', true);
           break;
 
         case 'vpd-optimize':
-          const { temp, humidity } = getCurrentAverages();
-          const currentVPD = calculateVPD(temp || 24, humidity || 50);
+          const currentVPD = calculateVPD(avgTemp || 24, avgHumidity || 50);
           const targetVPD = { min: 0.8, max: 1.2 };
 
           response = await quickActionsAPI.optimizeVPD(currentVPD, targetVPD);
-          console.log(`✅ VPD optimiert: ${currentVPD.toFixed(2)} kPa`);
+          toast.success(`VPD Optimierung gestartet (${currentVPD.toFixed(2)} → 0.8-1.2 kPa)`);
           break;
 
         case 'nutrients':
           response = await quickActionsAPI.doseNutrients(value || 30);
-          console.log(`✅ Nährstoff-Dosierung gestartet (${value || 30}s)`);
+          toast.success(`Nährstoff-Dosierung gestartet (${value || 30}s)`);
           break;
 
         case 'emergency-stop':
           response = await quickActionsAPI.emergencyStop();
-          console.log(`🚨 NOT-AUS aktiviert - Alle Systeme gestoppt`);
+          toast.error('NOT-AUS aktiviert - Alle Systeme gestoppt!');
           break;
 
         default:
           console.log(`Quick Action: ${action} = ${value}`);
       }
     } catch (error) {
-      console.error(`❌ Quick Action Fehler (${action}):`, error);
+      console.error(`Quick Action Fehler (${action}):`, error);
+      toast.error(`Aktion "${action}" fehlgeschlagen`);
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -200,6 +180,7 @@ const SmartGrowControl = () => {
     setActiveRecipe(recipe);
     localStorage.setItem('active-grow-recipe', JSON.stringify(recipe));
     generateAutomationFromRecipe(recipe);
+    toast.success(`Rezept "${recipe.name}" aktiviert`);
   };
 
   const generateAutomationFromRecipe = (recipe) => {
@@ -256,9 +237,10 @@ const SmartGrowControl = () => {
       }
   ];
 
-  // Get current status - using the safe helper
-  const { temp, humidity } = getCurrentAverages();
-  const lux = sensorData?.lux || 0;
+  // Get current status - using useSensorAverages hook values
+  const temp = avgTemp;
+  const humidity = avgHumidity;
+  const lux = light || 0;
 
   // Calculate VPD with safe fallback
   const vpd = temp > 0 && humidity > 0 ? calculateVPD(temp, humidity) : 0;
@@ -452,7 +434,48 @@ const SmartGrowControl = () => {
       </div>
 
       {/* Live Status Overview */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        {/* Plant Health Score - Prominent */}
+        <Card className="p-5 relative overflow-hidden" style={{ borderColor: plantHealth > 70 ? '#10b981' : plantHealth > 40 ? '#f59e0b' : '#ef4444', borderWidth: '2px' }}>
+          <div className="flex items-center gap-3 mb-3">
+            <div
+              className="p-2 rounded-lg"
+              style={{
+                backgroundColor: plantHealth > 70 ? 'rgba(16, 185, 129, 0.1)' : plantHealth > 40 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)',
+                color: plantHealth > 70 ? '#10b981' : plantHealth > 40 ? '#f59e0b' : '#ef4444'
+              }}
+            >
+              <Heart size={20} />
+            </div>
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: theme.text.muted }}>
+                Pflanzen-Gesundheit
+              </div>
+            </div>
+          </div>
+          <div className="flex items-end gap-2">
+            <span
+              className="text-4xl font-black"
+              style={{ color: plantHealth > 70 ? '#10b981' : plantHealth > 40 ? '#f59e0b' : '#ef4444' }}
+            >
+              {plantHealth}
+            </span>
+            <span className="text-lg mb-1" style={{ color: theme.text.muted }}>%</span>
+          </div>
+          <div className="w-full h-2 rounded-full mt-3 overflow-hidden" style={{ backgroundColor: theme.bg.hover }}>
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{
+                width: `${plantHealth}%`,
+                backgroundColor: plantHealth > 70 ? '#10b981' : plantHealth > 40 ? '#f59e0b' : '#ef4444'
+              }}
+            />
+          </div>
+          <div className="text-xs mt-2" style={{ color: theme.text.muted }}>
+            {plantHealth > 80 ? 'Exzellent' : plantHealth > 60 ? 'Gut' : plantHealth > 40 ? 'Verbesserungswürdig' : 'Kritisch'}
+          </div>
+        </Card>
+
         <StatusCard
           title="Temperatur"
           value={temp.toFixed(1)}
@@ -460,7 +483,7 @@ const SmartGrowControl = () => {
           target={activeRecipe?.targetTemp ? `${activeRecipe.targetTemp.min}-${activeRecipe.targetTemp.max}` : '22-28'}
           status={tempStatus}
           icon={<Thermometer size={20} />}
-          theme={currentTheme}
+          theme={theme}
         />
         <StatusCard
           title="Luftfeuchtigkeit"
@@ -469,7 +492,7 @@ const SmartGrowControl = () => {
           target={activeRecipe?.targetHumidity ? `${activeRecipe.targetHumidity.min}-${activeRecipe.targetHumidity.max}` : '40-70'}
           status={humidityStatus}
           icon={<Droplets size={20} />}
-          theme={currentTheme}
+          theme={theme}
         />
         <StatusCard
           title="VPD"
@@ -478,7 +501,7 @@ const SmartGrowControl = () => {
           target={activeRecipe?.targetVPD ? `${activeRecipe.targetVPD.min}-${activeRecipe.targetVPD.max}` : '0.8-1.5'}
           status={vpdStatus}
           icon={<Wind size={20} />}
-          theme={currentTheme}
+          theme={theme}
         />
         <StatusCard
           title="Licht"
@@ -487,7 +510,7 @@ const SmartGrowControl = () => {
           target="30-50"
           status="good"
           icon={<Sun size={20} />}
-          theme={currentTheme}
+          theme={theme}
         />
       </div>
 
@@ -581,25 +604,29 @@ const SmartGrowControl = () => {
               label="Lüfter Max"
               icon={<Wind size={18} />}
               onClick={() => quickAction('fan', 100)}
-              theme={currentTheme}
+              theme={theme}
+              loading={actionLoading === 'fan'}
             />
             <QuickActionBtn
               label="Licht Toggle"
               icon={<Sun size={18} />}
               onClick={() => quickAction('light', 'toggle')}
-              theme={currentTheme}
+              theme={theme}
+              loading={actionLoading === 'light'}
             />
             <QuickActionBtn
               label="VPD Optimieren"
               icon={<Droplets size={18} />}
               onClick={() => quickAction('vpd-optimize')}
-              theme={currentTheme}
+              theme={theme}
+              loading={actionLoading === 'vpd-optimize'}
             />
             <QuickActionBtn
               label="Nährstoffe"
               icon={<Beaker size={18} />}
               onClick={() => quickAction('nutrients', 30)}
-              theme={currentTheme}
+              theme={theme}
+              loading={actionLoading === 'nutrients'}
             />
           </div>
 
@@ -825,19 +852,24 @@ const RecipeCard = ({ recipe, isActive, onActivate, theme }) => {
 };
 
 // Quick Action Button
-const QuickActionBtn = ({ label, icon, onClick, theme }) => {
+const QuickActionBtn = ({ label, icon, onClick, theme, loading = false }) => {
   return (
     <button
       onClick={onClick}
-      className="p-3 rounded-lg border flex flex-col items-center gap-2 transition-all hover:brightness-110"
+      disabled={loading}
+      className="p-4 rounded-xl border flex flex-col items-center gap-2 transition-all hover:scale-105 hover:shadow-lg disabled:opacity-50 disabled:hover:scale-100"
       style={{
         backgroundColor: theme.bg.hover,
         borderColor: theme.border.light,
         color: theme.text.secondary
       }}
     >
-      {icon}
-      <span className="text-xs font-medium">{label}</span>
+      {loading ? (
+        <Loader2 size={18} className="animate-spin" style={{ color: theme.accent.color }} />
+      ) : (
+        icon
+      )}
+      <span className="text-xs font-bold">{loading ? 'Ausführen...' : label}</span>
     </button>
   );
 };

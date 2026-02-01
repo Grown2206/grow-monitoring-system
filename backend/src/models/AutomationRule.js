@@ -19,8 +19,16 @@ const conditionSchema = new mongoose.Schema({
   },
   value: mongoose.Schema.Types.Mixed,  // Kann Number, String, Array sein
   value2: Number,              // Für 'between' operator
-  timeStart: String,           // HH:MM
-  timeEnd: String,             // HH:MM
+  // Time condition fields (both naming conventions supported)
+  timeStart: String,           // HH:MM (legacy)
+  timeEnd: String,             // HH:MM (legacy)
+  startTime: String,           // HH:MM (new)
+  endTime: String,             // HH:MM (new)
+  timeMode: {                  // Modus für Zeit-Bedingung
+    type: String,
+    enum: ['between', 'before', 'after'],
+    default: 'between'
+  },
   days: [Number],              // 0-6 (Sonntag-Samstag)
   logicOperator: {
     type: String,
@@ -85,7 +93,7 @@ const automationRuleSchema = new mongoose.Schema({
   lastExecuted: Date,
   lastResult: {
     type: String,
-    enum: ['success', 'failed', 'skipped'],
+    enum: ['success', 'failed', 'skipped', null],
     default: null
   },
 
@@ -177,10 +185,31 @@ function evaluateCondition(condition, sensorData, currentTime) {
       }
 
     case 'time':
-      if (!condition.timeStart || !condition.timeEnd) return false;
       const now = currentTime || new Date();
       const currentHM = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-      return currentHM >= condition.timeStart && currentHM <= condition.timeEnd;
+
+      // Support both naming conventions (startTime/endTime and timeStart/timeEnd)
+      const startT = condition.startTime || condition.timeStart;
+      const endT = condition.endTime || condition.timeEnd;
+      const mode = condition.timeMode || 'between';
+
+      if (!startT) return false;
+
+      switch (mode) {
+        case 'between':
+          if (!endT) return false;
+          // Handle overnight time ranges (e.g., 22:00 - 06:00)
+          if (startT > endT) {
+            return currentHM >= startT || currentHM <= endT;
+          }
+          return currentHM >= startT && currentHM <= endT;
+        case 'before':
+          return currentHM < startT;
+        case 'after':
+          return currentHM >= startT;
+        default:
+          return false;
+      }
 
     case 'schedule':
       if (!condition.days || condition.days.length === 0) return true;

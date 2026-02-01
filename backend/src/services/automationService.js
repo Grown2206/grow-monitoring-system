@@ -661,9 +661,17 @@ const initializeAutomation = async () => {
 
     const { sensorDataEmitter } = require('./mqttService');
 
+    // WICHTIG: AutomationEngine starten
+    const automationEngine = require('./automationEngine');
+    automationEngine.start();
+    console.log('✅ AutomationEngine gestartet');
+
     // Listen to sensor data events from MQTT service
     sensorDataEmitter.on('sensorData', async ({ data, publishCommand, emitToClients }) => {
-      // Create mock socket object for backward compatibility
+      // Update AutomationEngine mit neuen Sensordaten
+      automationEngine.updateSensorData(data);
+
+      // Create mock socket object for backward compatibility (für alte automationService Logik)
       const mockESP32Socket = {
         send: (msg) => {
           try {
@@ -680,7 +688,7 @@ const initializeAutomation = async () => {
         emitToClients('automation', msg);
       };
 
-      // Run automation rules
+      // Run automation rules (alte Logik)
       await checkAutomationRules(data, mockESP32Socket, broadcast);
     });
 

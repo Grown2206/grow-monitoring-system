@@ -18,7 +18,7 @@ class PlantTrackingService {
     this.isRunning = false;
     this.collectionIntervalId = null;
     this.collectionIntervalMinutes = 10; // Collect data every 10 minutes
-    this.dailyAverages = new Map(); // plantId -> { temp: [], humidity: [], soil: [], vpd: [] }
+    this.dailyAverages = new Map(); // plantId -> { temp: [], humidity: [], soil: [], vpd: [], height: [] }
     this.lastDailySave = null;
   }
 
@@ -112,7 +112,8 @@ class PlantTrackingService {
             temp: [],
             humidity: [],
             soil: [],
-            vpd: []
+            vpd: [],
+            height: []
           });
         }
 
@@ -140,6 +141,16 @@ class PlantTrackingService {
           const vpd = vpdService.calculateVPD(temp, humidity);
           if (vpd !== null) {
             plantData.vpd.push(vpd);
+          }
+        }
+
+        // Height from VL53L0X ToF sensor (via TCA9548A Multiplexer)
+        const heightData = readings.heights || [];
+        if (plant.slotId && heightData[plant.slotId - 1] !== undefined) {
+          const heightMM = heightData[plant.slotId - 1];
+          if (heightMM > 0) {
+            // mm → cm umrechnen
+            plantData.height.push(heightMM / 10);
           }
         }
       }
@@ -205,7 +216,7 @@ class PlantTrackingService {
       });
 
       // Calculate averages from in-memory data
-      let avgTemp = null, avgHumidity = null, avgSoilMoisture = null, avgVPD = null;
+      let avgTemp = null, avgHumidity = null, avgSoilMoisture = null, avgVPD = null, avgHeight = null;
 
       if (this.dailyAverages.has(plantId)) {
         // Use in-memory collected data (more accurate)
@@ -214,6 +225,7 @@ class PlantTrackingService {
         avgHumidity = this.calculateAverage(data.humidity);
         avgSoilMoisture = this.calculateAverage(data.soil);
         avgVPD = this.calculateAverage(data.vpd);
+        avgHeight = this.calculateAverage(data.height);
       } else {
         // Fallback to MongoDB aggregation (in case service was restarted)
         const aggregatedData = await this.calculateDailyAveragesFromDB(date);
@@ -229,6 +241,11 @@ class PlantTrackingService {
         if (avgHumidity !== null) growthLog.environment.avgHumidity = Math.round(avgHumidity * 10) / 10;
         if (avgSoilMoisture !== null) growthLog.environment.avgSoilMoisture = Math.round(avgSoilMoisture * 10) / 10;
         if (avgVPD !== null) growthLog.environment.avgVPD = Math.round(avgVPD * 100) / 100;
+
+        // Automatische Höhenmessung (VL53L0X ToF)
+        if (avgHeight !== null) {
+          growthLog.measurements.height = { value: Math.round(avgHeight * 10) / 10, unit: 'cm' };
+        }
 
         await growthLog.save();
         console.log(`✅ Growth log updated for ${plant.name || `Slot ${plant.slotId}`}`);
@@ -246,7 +263,7 @@ class PlantTrackingService {
             waterAmount: null // Will be manually entered
           },
           measurements: {
-            height: { value: null, unit: 'cm' },
+            height: { value: avgHeight !== null ? Math.round(avgHeight * 10) / 10 : null, unit: 'cm' },
             width: { value: null, unit: 'cm' },
             stemDiameter: { value: null, unit: 'mm' }
           },

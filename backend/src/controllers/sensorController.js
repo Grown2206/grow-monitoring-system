@@ -1,6 +1,7 @@
 const { TOPICS } = require('../config/mqtt');
 const SensorCalibration = require('../models/SensorCalibration');
 const NutrientReading = require('../models/NutrientReading');
+const SensorLog = require('../models/SensorLog');
 const { client: mqttClient } = require('../services/mqttService');
 
 /**
@@ -373,6 +374,162 @@ exports.setTemperatureCompensation = async (req, res, next) => {
       success: true,
       message: `Temperature compensation set for ${type}`,
       temperature
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ==========================================
+// VL53L0X ToF CALIBRATION
+// ==========================================
+
+// In-Memory ToF Config (persisted to MongoDB)
+let tofConfigCache = null;
+
+/**
+ * GET /api/sensors/tof/config
+ * Lade ToF Sensor-Konfiguration (Montagehöhen)
+ */
+exports.getTofConfig = async (req, res, next) => {
+  try {
+    // Lade aus SensorCalibration Collection (type: 'tof')
+    let config = await SensorCalibration.findOne({ sensorType: 'tof' });
+
+    if (!config) {
+      // Default-Konfiguration erstellen
+      config = await SensorCalibration.create({
+        sensorType: 'tof',
+        tofConfig: {
+          sensors: Array.from({ length: 6 }, (_, i) => ({
+            slot: i + 1,
+            mountHeight_mm: 800,
+            offset_mm: 0,
+            label: `Slot ${i + 1}`,
+            enabled: true
+          }))
+        },
+        status: { isValid: true, lastCalibration: new Date() }
+      });
+    }
+
+    // Live-Höhendaten anhängen
+    const latestLog = await SensorLog.findOne()
+      .sort({ timestamp: -1 })
+      .select('readings.heights timestamp')
+      .lean();
+
+    const liveHeights = latestLog?.readings?.heights || [];
+
+    res.json({
+      success: true,
+      data: {
+        sensors: config.tofConfig?.sensors || [],
+        liveHeights,
+        liveTimestamp: latestLog?.timestamp,
+        lastCalibration: config.status?.lastCalibration,
+        updatedAt: config.updatedAt
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/sensors/tof/config
+ * Speichere ToF Sensor-Konfiguration
+ * Body: { sensors: [{ slot, mountHeight_mm, offset_mm, label, enabled }] }
+ */
+exports.saveTofConfig = async (req, res, next) => {
+  try {
+    const { sensors } = req.body;
+
+    if (!sensors || !Array.isArray(sensors) || sensors.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        error: 'sensors must be an array of 6 entries'
+      });
+    }
+
+    // Validierung
+    for (const s of sensors) {
+      if (s.mountHeight_mm < 100 || s.mountHeight_mm > 2000) {
+        return res.status(400).json({
+          success: false,
+          error: `Montagehöhe für Slot ${s.slot} muss zwischen 100-2000mm liegen`
+        });
+      }
+    }
+
+    let config = await SensorCalibration.findOne({ sensorType: 'tof' });
+
+    if (!config) {
+      config = new SensorCalibration({ sensorType: 'tof' });
+    }
+
+    config.tofConfig = { sensors };
+    config.status = { isValid: true, lastCalibration: new Date() };
+    config.markModified('tofConfig');
+    await config.save();
+
+    // MQTT: Montagehöhen an ESP32 senden (optional, Firmware kann sie übernehmen)
+    try {
+      const heights = sensors.map(s => s.mountHeight_mm + (s.offset_mm || 0));
+      mqttClient.publish(TOPICS.COMMAND, JSON.stringify({
+        action: 'set_tof_mount_heights',
+        heights
+      }));
+    } catch (e) {
+      // MQTT optional
+    }
+
+    console.log('📏 ToF config saved:', sensors.map(s => `${s.slot}:${s.mountHeight_mm}mm`).join(', '));
+
+    res.json({
+      success: true,
+      message: 'ToF Konfiguration gespeichert',
+      data: config.tofConfig
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/sensors/tof/test/:slot
+ * Test-Messung: Lese aktuelle Höhe für einen Slot
+ */
+exports.testTofSensor = async (req, res, next) => {
+  try {
+    const slot = parseInt(req.params.slot);
+    if (isNaN(slot) || slot < 1 || slot > 6) {
+      return res.status(400).json({ success: false, error: 'Slot muss 1-6 sein' });
+    }
+
+    // Letzten SensorLog abfragen
+    const latestLog = await SensorLog.findOne()
+      .sort({ timestamp: -1 })
+      .select('readings.heights timestamp')
+      .lean();
+
+    if (!latestLog || !latestLog.readings?.heights) {
+      return res.json({
+        success: true,
+        data: { slot, height_mm: null, timestamp: null, message: 'Keine Sensordaten verfügbar' }
+      });
+    }
+
+    const heightMM = latestLog.readings.heights[slot - 1];
+
+    res.json({
+      success: true,
+      data: {
+        slot,
+        height_mm: heightMM !== undefined ? heightMM : null,
+        valid: heightMM > 0,
+        timestamp: latestLog.timestamp
+      }
     });
   } catch (error) {
     next(error);

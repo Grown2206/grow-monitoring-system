@@ -78,6 +78,18 @@ export default function Hardware() {
     return typeof val === 'number' ? val.toFixed(fixed) + suffix : val;
   };
 
+  // AQI Label Helper (UBA Skala 1-5)
+  const getAQILabel = (aqi) => {
+    switch(aqi) {
+      case 1: return '1 - Excellent';
+      case 2: return '2 - Good';
+      case 3: return '3 - Moderate';
+      case 4: return '4 - Poor';
+      case 5: return '5 - Unhealthy';
+      default: return '--';
+    }
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 pb-20">
       
@@ -186,15 +198,54 @@ export default function Hardware() {
                 // Status OK wenn Wert > 0 und plausibel (ADC max 4095)
                 const isOk = val > 0 && val <= 4095;
                 return (
-                  <SensorStatus 
+                  <SensorStatus
                     key={index}
-                    name={`Sensor ${index + 1}`} 
-                    type="soil" 
-                    value={`${getVal(val, 0)} Raw`} 
-                    status={isOk ? 'ok' : 'error'} 
+                    name={`Sensor ${index + 1}`}
+                    type="soil"
+                    value={`${getVal(val, 0)} Raw`}
+                    status={isOk ? 'ok' : 'error'}
                   />
                 );
               })}
+            </div>
+          </div>
+
+          {/* ENS160 + AHT21 Luftqualität */}
+          <div className="pt-4 mt-6 border-t border-slate-800">
+            <h3 className="text-white font-bold flex items-center gap-2 mb-4">
+              <Wind size={18} className="text-cyan-500" /> Luftqualität (ENS160 + AHT21)
+            </h3>
+            <div className="space-y-3">
+              <SensorStatus
+                name="ENS160 eCO2"
+                type="system"
+                value={`${getVal(sensorData?.ens160_eco2, 0, ' ppm')}`}
+                status={sensorData?.ens160_eco2 > 0 ? 'ok' : 'error'}
+              />
+              <SensorStatus
+                name="ENS160 TVOC"
+                type="system"
+                value={`${getVal(sensorData?.ens160_tvoc, 0, ' ppb')}`}
+                status={sensorData?.ens160_tvoc >= 0 ? 'ok' : 'error'}
+              />
+              <SensorStatus
+                name="ENS160 AQI"
+                type="system"
+                value={getAQILabel(sensorData?.ens160_aqi)}
+                status={sensorData?.ens160_aqi > 0 && sensorData?.ens160_aqi <= 3 ? 'ok' : 'error'}
+              />
+              <SensorStatus
+                name="AHT21 Temperatur"
+                type="temp"
+                value={`${getVal(sensorData?.aht21_temp, 1, '°C')}`}
+                status={sensorData?.aht21_temp > 0 ? 'ok' : 'error'}
+              />
+              <SensorStatus
+                name="AHT21 Luftfeuchtigkeit"
+                type="water"
+                value={`${getVal(sensorData?.aht21_humidity, 1, '%')}`}
+                status={sensorData?.aht21_humidity > 0 ? 'ok' : 'error'}
+              />
             </div>
           </div>
         </div>

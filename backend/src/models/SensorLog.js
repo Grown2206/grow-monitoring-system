@@ -10,7 +10,11 @@ const SensorLogSchema = new mongoose.Schema({
     required: true // z.B. "esp32_main"
   },
   readings: {
-    // 3 SHT31 Temperatursensoren (Höhenverteilung)
+    // Durchschnittswerte (vom ESP32 berechnet)
+    temp: Number,           // Durchschnitts-Temperatur aller SHT31
+    humidity: Number,       // Durchschnitts-Luftfeuchtigkeit aller SHT31
+
+    // 3 SHT31 Einzelsensoren (Höhenverteilung)
     temp_bottom: Number,    // SHT31 Unten
     temp_middle: Number,    // SHT31 Mitte
     temp_top: Number,       // SHT31 Oben
@@ -22,11 +26,25 @@ const SensorLogSchema = new mongoose.Schema({
     lux: Number,        // Helligkeit (BH1750)
     tankLevel: Number,  // Wasserstand (Raw 0-4095)
     gasLevel: Number,   // CO2/Gas (MQ-135 Raw)
-    soilMoisture: [Number] // Array für die 6 Pflanzen [50, 40, 20, 0, 0, 0]
+    soilMoisture: [Number], // Array für die 6 Pflanzen [50, 40, 20, 0, 0, 0]
+
+    // VL53L0X ToF Pflanzenhöhen (mm) - 6 Sensoren via TCA9548A
+    // Werte: >0 = Höhe in mm, -1 = Sensor ungültig/nicht vorhanden
+    heights: [Number],
+
+    // ENS160 Luftqualitäts-Sensor
+    ens160_eco2: Number,     // eCO2 in ppm (400-65000)
+    ens160_tvoc: Number,     // TVOC in ppb (0-65000)
+    ens160_aqi: Number,      // AQI 1-5 (UBA Skala: 1=Excellent, 5=Unhealthy)
+
+    // AHT21 Temperatur & Luftfeuchtigkeit (ENS160 Companion)
+    aht21_temp: Number,      // Temperatur in °C
+    aht21_humidity: Number   // Luftfeuchtigkeit in %
   }
 });
 
-// Index setzen, damit Abfragen nach Zeit schnell gehen
+// Indexes für schnelle Abfragen
 SensorLogSchema.index({ timestamp: -1 });
+SensorLogSchema.index({ device: 1, timestamp: -1 });
 
 module.exports = mongoose.model('SensorLog', SensorLogSchema);

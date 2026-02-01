@@ -15,17 +15,18 @@ const { getLogs, getEvents, createEvent, deleteEvent, getAutomationConfig, updat
 const { getConsultation } = require('../controllers/aiController');
 const notificationController = require('../controllers/notificationController');
 const weatherController = require('../controllers/weatherController');
-const recipeController = require('../controllers/recipeController');
 const analyticsController = require('../controllers/analyticsController');
 const quickActionController = require('../controllers/quickActionController');
 const nutrientRoutes = require('./nutrientRoutes');
 const vpdRoutes = require('./vpdRoutes');
 const sensorRoutes = require('./sensorRoutes');
 const timelapseRoutes = require('./timelapseRoutes');
-const simulationRoutes = require('./simulationRoutes');
+const cameraRoutes = require('./cameraRoutes');
 const automationRuleController = require('../controllers/automationRuleController');
 const plantGrowthController = require('../controllers/plantGrowthController');
 const plantTrackingService = require('../services/plantTrackingService');
+const calendarController = require('../controllers/calendarController');
+const plantAnalysisService = require('../services/plantAnalysisService');
 const maintenanceRoutes = require('./maintenanceRoutes');
 
 // Config Speicher (Mockup für Laufzeit, wird bei Neustart zurückgesetzt - idealerweise DB nutzen)
@@ -270,6 +271,19 @@ router.post('/system/reset', optionalAuth, (req, res) => {
   });
 });
 
+// Device Definitions (für Automation UI)
+router.get('/devices', optionalAuth, (req, res) => {
+  const { getAllControllableDevices, DEVICE_DEFINITIONS } = require('../config/devices');
+
+  res.json({
+    success: true,
+    data: {
+      devices: getAllControllableDevices(),
+      definitions: DEVICE_DEFINITIONS
+    }
+  });
+});
+
 // ==========================================
 // 7. PUSH-NOTIFICATIONS (Public - optional auth)
 // ==========================================
@@ -288,22 +302,7 @@ router.get('/weather/forecast', optionalAuth, weatherController.getForecast);
 router.get('/weather/recommendations', optionalAuth, weatherController.getRecommendations);
 
 // ==========================================
-// 9. GROW-REZEPTE (Public - optional auth)
-// ==========================================
-router.get('/recipes', optionalAuth, recipeController.getAll);
-router.get('/recipes/:id', optionalAuth, validateObjectId('id'), recipeController.getById);
-router.post('/recipes', optionalAuth, recipeController.create);
-router.put('/recipes/:id', optionalAuth, validateObjectId('id'), recipeController.update);
-router.delete('/recipes/:id', optionalAuth, validateObjectId('id'), recipeController.delete);
-router.post('/recipes/:id/use', optionalAuth, validateObjectId('id'), recipeController.use);
-router.post('/recipes/:id/like', optionalAuth, validateObjectId('id'), recipeController.like);
-router.post('/recipes/:id/clone', optionalAuth, validateObjectId('id'), recipeController.clone);
-router.get('/recipes/:id/export', optionalAuth, validateObjectId('id'), recipeController.exportRecipe);
-router.post('/recipes/import', optionalAuth, recipeController.importRecipe);
-router.post('/recipes/:id/favorite', optionalAuth, validateObjectId('id'), recipeController.toggleFavorite);
-
-// ==========================================
-// 10. ANALYTICS & AI (Public - optional auth)
+// 9. ANALYTICS & AI (Public - optional auth)
 // ==========================================
 router.get('/analytics/anomalies', optionalAuth, analyticsController.getAnomalies);
 router.get('/analytics/predictions', optionalAuth, analyticsController.getPredictions);
@@ -330,9 +329,9 @@ router.use('/sensors', sensorRoutes);
 router.use('/timelapse', timelapseRoutes);
 
 // ==========================================
-// 15. GROW-SIMULATOR (Public - optional auth)
+// 15. KAMERA-MANAGEMENT (Public - optional auth)
 // ==========================================
-router.use('/simulation', simulationRoutes);
+router.use('/cameras', cameraRoutes);
 
 // ==========================================
 // 16. QUICK ACTIONS (Public - optional auth)
@@ -404,6 +403,67 @@ router.get('/growth-logger/status', optionalAuth, (req, res) => {
     }
   });
 });
+
+// ==========================================
+// PLANT HEIGHT & ANALYSIS (VL53L0X + Gemini)
+// ==========================================
+
+// Aktuelle Höhendaten (letzter SensorLog)
+router.get('/plants/heights', optionalAuth, async (req, res) => {
+  try {
+    const SensorLog = require('../models/SensorLog');
+    const latestLog = await SensorLog.findOne()
+      .sort({ timestamp: -1 })
+      .select('readings.heights timestamp')
+      .lean();
+
+    if (!latestLog || !latestLog.readings?.heights) {
+      return res.json({
+        success: true,
+        data: { heights: [], timestamp: null }
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        heights: latestLog.readings.heights,
+        timestamp: latestLog.timestamp
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Manuelle Gemini-Analyse auslösen
+router.post('/plants/analysis/trigger', optionalAuth, async (req, res) => {
+  try {
+    const results = await plantAnalysisService.analyzeAllPlants();
+    res.json({
+      success: true,
+      message: 'Plant analysis completed',
+      data: results
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Analyse-Status abrufen
+router.get('/plants/analysis/status', optionalAuth, (req, res) => {
+  const status = plantAnalysisService.getStatus();
+  res.json({ success: true, data: status });
+});
+
+// ==========================================
+// KALENDER DAILY/MONTH SUMMARY
+// ==========================================
+router.get('/calendar/daily-summary/:date', optionalAuth, calendarController.getDailySummary);
+router.get('/calendar/month-summary/:year/:month', optionalAuth, calendarController.getMonthSummary);
+router.get('/calendar/day-detail/:date', optionalAuth, calendarController.getDayDetail);
+router.get('/calendar/week-comparison/:year/:week', optionalAuth, calendarController.getWeekComparison);
+router.get('/calendar/trends/:year/:month', optionalAuth, calendarController.getMonthTrends);
 
 // ==========================================
 // PREDICTIVE MAINTENANCE (KI-basiert)

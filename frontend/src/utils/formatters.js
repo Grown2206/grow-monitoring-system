@@ -1,1 +1,0 @@
-// Hilfsfunktionen (z.B. Datum formatieren)

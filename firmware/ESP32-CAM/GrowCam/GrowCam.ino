@@ -1,6 +1,6 @@
 /*
  * ESP32-CAM für Grow Monitoring System
- * Version 1.0 - Timelapse & Live Stream
+ * Version 1.1 - Timelapse & Live Stream (RAW TCP)
  *
  * Hardware: ESP32-CAM (AI-Thinker Module)
  * Features:
@@ -17,7 +17,6 @@
 
 #include <WiFi.h>
 #include <WebServer.h>
-#include <HTTPClient.h>
 #include "esp_camera.h"
 #include "esp_timer.h"
 #include "img_converters.h"
@@ -34,7 +33,9 @@ const char* WIFI_SSID = "WLAN-915420";
 const char* WIFI_PASSWORD = "78118805138223696181";
 
 // Backend Server (CasaOS) - Direkt Port 3000 (ohne Nginx)
-const char* BACKEND_URL = "http://192.168.2.169:3000/api/timelapse/upload";
+const char* BACKEND_HOST = "192.168.2.169";
+const int BACKEND_PORT = 3000;
+const char* BACKEND_PATH = "/api/timelapse/upload";
 const char* CAM_NAME = "cam1";  // Eindeutige Kamera-ID (cam1, cam2, etc.)
 
 // Timelapse Einstellungen
@@ -143,7 +144,7 @@ bool initCamera() {
 }
 
 // ==========================================
-// FOTO AUFNEHMEN & HOCHLADEN
+// FOTO AUFNEHMEN & HOCHLADEN (RAW TCP)
 // ==========================================
 bool captureAndUpload() {
   // LED einschalten (optional)
@@ -162,39 +163,91 @@ bool captureAndUpload() {
 
   Serial.printf("Foto aufgenommen: %d bytes\n", fb->len);
 
-  // HTTP Upload zum Backend
+  // RAW TCP Upload zum Backend
   WiFiClient client;
-  HTTPClient http;
 
-  http.begin(client, BACKEND_URL);
-  http.addHeader("Content-Type", "image/jpeg");
-  http.addHeader("X-Camera-Name", CAM_NAME);
-  http.setTimeout(30000); // 30 Sekunden timeout
+  Serial.printf("📤 Verbinde zu %s:%d\n", BACKEND_HOST, BACKEND_PORT);
 
-  Serial.printf("📤 Sende %d bytes an %s\n", fb->len, BACKEND_URL);
-  int httpCode = http.POST(fb->buf, fb->len);
-
-  if(httpCode == 200) {
-    Serial.println("✅ Foto erfolgreich hochgeladen");
-    String response = http.getString();
-    Serial.println("Response: " + response);
-  } else if (httpCode > 0) {
-    Serial.printf("❌ Upload fehlgeschlagen - HTTP Code: %d\n", httpCode);
-    String response = http.getString();
-    Serial.println("Server Response: " + response);
-  } else {
-    Serial.printf("❌ Verbindungsfehler: %d (", httpCode);
-    if(httpCode == -1) Serial.print("Connection refused");
-    else if(httpCode == -3) Serial.print("Connection timeout");
-    else if(httpCode == -11) Serial.print("Read timeout");
-    else Serial.print("Unknown");
-    Serial.println(")");
+  if (!client.connect(BACKEND_HOST, BACKEND_PORT)) {
+    Serial.println("❌ Verbindung fehlgeschlagen");
+    esp_camera_fb_return(fb);
+    return false;
   }
 
-  http.end();
+  Serial.println("✅ Verbunden, sende HTTP Request...");
+
+  // HTTP POST Request erstellen
+  String httpRequest = String("POST ") + BACKEND_PATH + " HTTP/1.1\r\n" +
+                       "Host: " + BACKEND_HOST + ":" + BACKEND_PORT + "\r\n" +
+                       "Content-Type: image/jpeg\r\n" +
+                       "X-Camera-Name: " + CAM_NAME + "\r\n" +
+                       "Content-Length: " + fb->len + "\r\n" +
+                       "Connection: close\r\n\r\n";
+
+  // Sende Header
+  client.print(httpRequest);
+
+  // Sende Bild-Daten direkt (ohne komplexes Chunking)
+  Serial.printf("📤 Sende %d bytes...\n", fb->len);
+
+  size_t totalSent = 0;
+  const size_t chunkSize = 2048;
+
+  for (size_t i = 0; i < fb->len; i += chunkSize) {
+    size_t toSend = min(chunkSize, fb->len - i);
+
+    size_t sent = 0;
+    while (sent < toSend && client.connected()) {
+      size_t written = client.write(fb->buf + i + sent, toSend - sent);
+      sent += written;
+
+      if (written == 0) {
+        delay(10);  // Kurze Pause wenn Buffer voll
+      }
+    }
+
+    totalSent += sent;
+
+    // Progress Update alle 20KB
+    if (totalSent % 20480 == 0) {
+      Serial.printf("📤 Progress: %d%%\n", (totalSent * 100) / fb->len);
+    }
+  }
+
+  Serial.printf("✅ Komplett gesendet: %d bytes\n", totalSent);
+
+  // Warte auf Response
+  unsigned long timeout = millis();
+  while (client.available() == 0) {
+    if (millis() - timeout > 10000) {
+      Serial.println("❌ Response Timeout");
+      client.stop();
+      esp_camera_fb_return(fb);
+      return false;
+    }
+    delay(10);
+  }
+
+  // Lese Response
+  String response = "";
+  while (client.available()) {
+    response += client.readStringUntil('\n');
+  }
+
+  Serial.println("📥 Response: " + response);
+
+  bool success = response.indexOf("200") > 0 || response.indexOf("OK") > 0;
+
+  if(success) {
+    Serial.println("✅ Foto erfolgreich hochgeladen");
+  } else {
+    Serial.println("❌ Upload fehlgeschlagen");
+  }
+
+  client.stop();
   esp_camera_fb_return(fb);
 
-  return (httpCode == 200);
+  return success;
 }
 
 // ==========================================
@@ -257,7 +310,7 @@ void handleRoot() {
   html += "<button onclick='window.location=\"/capture\"'>Capture Photo</button>";
   html += "<p>Timelapse: " + String(timelapseEnabled ? "Enabled" : "Disabled") + "</p>";
   html += "<p>Interval: " + String(TIMELAPSE_INTERVAL/1000) + "s</p>";
-  html += "<p>Backend: " + String(BACKEND_URL) + "</p>";
+  html += "<p>Backend: " + String(BACKEND_HOST) + ":" + String(BACKEND_PORT) + "</p>";
   html += "</body></html>";
 
   server.send(200, "text/html", html);

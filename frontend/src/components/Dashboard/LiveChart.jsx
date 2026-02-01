@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { api } from '../../utils/api';
 import { colors } from '../../theme';
+import { Loader2, RefreshCw } from 'lucide-react';
 
 export default function LiveChart({ theme }) {
   const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdate, setLastUpdate] = useState(null);
 
   useEffect(() => {
     loadHistory();
@@ -13,6 +16,7 @@ export default function LiveChart({ theme }) {
   }, []);
 
   const loadHistory = async () => {
+    setLoading(true);
     try {
       const response = await api.getHistory();
       const history = response?.data || response || [];
@@ -68,6 +72,7 @@ export default function LiveChart({ theme }) {
       }
 
       setData(formatted);
+      setLastUpdate(new Date());
     } catch (e) {
       console.error("Chart Error", e);
       // Bei Fehler: Zeige Mock-Daten
@@ -88,13 +93,17 @@ export default function LiveChart({ theme }) {
         });
       }
       setData(mockData);
+      setLastUpdate(new Date());
+    } finally {
+      setLoading(false);
     }
   };
 
-  if (data.length === 0) {
+  if (loading && data.length === 0) {
     return (
-      <div className="h-full flex items-center justify-center text-sm" style={{ color: theme.text.muted }}>
-        Warte auf Daten...
+      <div className="h-full flex flex-col items-center justify-center gap-3" style={{ color: theme.text.muted }}>
+        <Loader2 size={32} className="animate-spin" style={{ color: theme.accent.color }} />
+        <span className="text-sm">Lade Sensordaten...</span>
       </div>
     );
   }
@@ -103,8 +112,34 @@ export default function LiveChart({ theme }) {
   const humidityColor = colors.blue[400];
   const vpdColor = colors.purple[400];
 
+  // Custom Legend
+  const CustomLegend = () => (
+    <div className="flex items-center justify-center gap-6 mt-2 flex-wrap">
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: accentColor }} />
+        <span className="text-xs" style={{ color: theme.text.secondary }}>Temperatur</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: humidityColor }} />
+        <span className="text-xs" style={{ color: theme.text.secondary }}>Luftfeuchte</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: vpdColor }} />
+        <span className="text-xs" style={{ color: theme.text.secondary }}>VPD</span>
+      </div>
+      {lastUpdate && (
+        <div className="flex items-center gap-1 text-xs" style={{ color: theme.text.muted }}>
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+          <span>{lastUpdate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <div className="h-full flex flex-col">
+      <div className="flex-1">
+        <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data}>
         <defs>
           <linearGradient id="colorTemp" x1="0" y1="0" x2="0" y2="1">
@@ -197,6 +232,9 @@ export default function LiveChart({ theme }) {
           yAxisId="right"
         />
       </AreaChart>
-    </ResponsiveContainer>
+        </ResponsiveContainer>
+      </div>
+      <CustomLegend />
+    </div>
   );
 }

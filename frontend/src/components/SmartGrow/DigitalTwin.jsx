@@ -1,53 +1,49 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../theme';
-import { useSocket } from '../../context/SocketContext';
+import { useSensorAverages } from '../../hooks/useSensorAverages';
 import { calculateVPD } from '../../utils/growMath';
 import {
   Droplets, Thermometer, Sun, Wind, Activity, TrendingUp,
-  Zap, AlertTriangle, CheckCircle, Info
+  Zap, AlertTriangle, CheckCircle, Info, Leaf
 } from 'lucide-react';
 
-function DigitalTwin({ growthStage = 'vegetative', healthScore = 85, soilMoisture = 60 }) {
+function DigitalTwin({ growthStage = 'vegetative', healthScore = 85, soilMoisture = 60, realHeight = null }) {
   const { currentTheme } = useTheme();
-  const { sensorData } = useSocket();
+  const theme = currentTheme;
+  const { temp, humidity, soilTemp, light } = useSensorAverages();
   const [plantHeight, setPlantHeight] = useState(50);
   const [leafColor, setLeafColor] = useState('#10b981');
   const [animationClass, setAnimationClass] = useState('');
 
-  // Berechne aktuelle Durchschnittswerte
-  const getCurrentAverages = () => {
-    if (!sensorData) return { temp: 24, humidity: 50, soilTemp: 22, light: 0 };
-
-    const temps = [sensorData.temp_bottom, sensorData.temp_middle, sensorData.temp_top].filter(t => t != null && t > 0);
-    const humidities = [sensorData.humidity_bottom, sensorData.humidity_middle, sensorData.humidity_top].filter(h => h != null && h > 0);
-
-    const avgTemp = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 24;
-    const avgHumidity = humidities.length > 0 ? humidities.reduce((a, b) => a + b, 0) / humidities.length : 50;
-
-    return {
-      temp: avgTemp,
-      humidity: avgHumidity,
-      soilTemp: sensorData.soil_temp || 22,
-      light: sensorData.light_intensity || 0
-    };
+  // Nutze Hook-Daten mit Fallbacks
+  const currentData = {
+    temp: temp || 24,
+    humidity: humidity || 50,
+    soilTemp: soilTemp || 22,
+    light: light || 0
   };
-
-  const currentData = getCurrentAverages();
   const vpd = calculateVPD(currentData.temp, currentData.humidity);
 
-  // Update Pflanzengröße basierend auf Wachstumsstadium und Health Score
+  // Update Pflanzengröße - echte Höhendaten priorisieren (VL53L0X)
   useEffect(() => {
-    const stageHeights = {
-      seedling: 30,
-      vegetative: 60,
-      flowering: 80,
-      harvest: 90
-    };
+    if (realHeight && realHeight > 0) {
+      // Echte Höhe: cm → SVG-Einheit (max ~90)
+      const svgHeight = Math.min(95, Math.max(15, (realHeight / 80) * 90));
+      setPlantHeight(svgHeight);
+    } else {
+      // Fallback: basierend auf Wachstumsstadium und Health Score
+      const stageHeights = {
+        seedling: 30,
+        vegetative: 60,
+        flowering: 80,
+        harvest: 90
+      };
 
-    const baseHeight = stageHeights[growthStage] || 50;
-    const healthModifier = (healthScore / 100) * 0.3; // max ±30%
-    setPlantHeight(baseHeight * (1 + healthModifier - 0.15));
-  }, [growthStage, healthScore]);
+      const baseHeight = stageHeights[growthStage] || 50;
+      const healthModifier = (healthScore / 100) * 0.3; // max ±30%
+      setPlantHeight(baseHeight * (1 + healthModifier - 0.15));
+    }
+  }, [growthStage, healthScore, realHeight]);
 
   // Update Blattfarbe basierend auf Health und Umgebung
   useEffect(() => {
@@ -126,7 +122,7 @@ function DigitalTwin({ growthStage = 'vegetative', healthScore = 85, soilMoistur
   };
 
   return (
-    <div className="relative w-full h-full flex items-center justify-center">
+    <div className="relative w-full min-h-[600px] flex items-center justify-center p-4">
       {/* Background Umgebung */}
       <div
         className="absolute inset-0 rounded-xl overflow-hidden"
@@ -368,8 +364,8 @@ function DigitalTwin({ growthStage = 'vegetative', healthScore = 85, soilMoistur
       <SensorBadge
         icon={Sun}
         label="Lichtintensität"
-        value={currentData.light.toFixed(0)}
-        unit="%"
+        value={currentData.light >= 1000 ? (currentData.light / 1000).toFixed(1) : currentData.light.toFixed(0)}
+        unit={currentData.light >= 1000 ? " klx" : " lux"}
         position={{ top: '40%', right: '5%' }}
       />
 

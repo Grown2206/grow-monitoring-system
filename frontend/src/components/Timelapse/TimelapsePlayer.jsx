@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Play, Pause, Download, Trash2, Film, Calendar, Clock, Eye, TrendingUp } from 'lucide-react';
+import { Play, Pause, Download, Trash2, Film, Calendar, Clock, Eye, TrendingUp, Loader2, RefreshCw, X } from 'lucide-react';
 import { api } from '../../utils/api';
+import { useTheme } from '../../theme';
+import toast from '../../utils/toast';
 
 /**
  * Timelapse Player
  * Video-Player für generierte Timelapse-Videos
  */
-const TimelapsePlayer = () => {
+const TimelapsePlayer = ({ theme: propTheme }) => {
+  const { currentTheme } = useTheme();
+  const theme = propTheme || currentTheme;
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedVideo, setSelectedVideo] = useState(null);
@@ -42,9 +46,10 @@ const TimelapsePlayer = () => {
       if (selectedVideo?._id === videoId) {
         setSelectedVideo(null);
       }
+      toast.success('Video gelöscht');
     } catch (error) {
-      console.error('❌ Error deleting video:', error);
-      alert('Fehler beim Löschen');
+      console.error('Error deleting video:', error);
+      toast.error('Fehler beim Löschen');
     }
   };
 
@@ -84,8 +89,9 @@ const TimelapsePlayer = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div>
+      <div className="flex flex-col items-center justify-center h-64 gap-3" style={{ color: theme.text.muted }}>
+        <Loader2 size={32} className="animate-spin" style={{ color: theme.accent.color }} />
+        <span className="text-sm">Lade Videos...</span>
       </div>
     );
   }
@@ -95,10 +101,12 @@ const TimelapsePlayer = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Film className="text-emerald-500" size={24} />
+          <Film style={{ color: theme.accent.color }} size={24} />
           <div>
-            <h3 className="text-lg font-semibold">Timelapse Videos</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
+            <h3 className="text-lg font-semibold" style={{ color: theme.text.primary }}>
+              Timelapse Videos
+            </h3>
+            <p className="text-sm" style={{ color: theme.text.secondary }}>
               {videos.length} Videos
             </p>
           </div>
@@ -106,15 +114,24 @@ const TimelapsePlayer = () => {
 
         {/* Filter */}
         <div className="flex gap-2">
+          <button
+            onClick={fetchVideos}
+            disabled={loading}
+            className="p-2 rounded-lg transition-colors"
+            style={{ backgroundColor: theme.bg.hover, color: theme.text.muted }}
+            title="Aktualisieren"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
           {['all', 'completed', 'processing'].map((status) => (
             <button
               key={status}
               onClick={() => setFilterStatus(status)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                filterStatus === status
-                  ? 'bg-emerald-500 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                backgroundColor: filterStatus === status ? theme.accent.color : theme.bg.hover,
+                color: filterStatus === status ? '#fff' : theme.text.secondary
+              }}
             >
               {status === 'all' ? 'Alle' : getStatusLabel(status)}
             </button>
@@ -124,22 +141,28 @@ const TimelapsePlayer = () => {
 
       {/* Video Player (if video selected) */}
       {selectedVideo && selectedVideo.status === 'completed' && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+        <div
+          className="rounded-xl border p-6"
+          style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default }}
+        >
           <div className="space-y-4">
             <div className="flex items-start justify-between">
               <div>
-                <h2 className="text-xl font-semibold">{selectedVideo.title}</h2>
+                <h2 className="text-xl font-semibold" style={{ color: theme.text.primary }}>
+                  {selectedVideo.title}
+                </h2>
                 {selectedVideo.description && (
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  <p className="text-sm mt-1" style={{ color: theme.text.secondary }}>
                     {selectedVideo.description}
                   </p>
                 )}
               </div>
               <button
                 onClick={() => setSelectedVideo(null)}
-                className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                className="p-2 rounded-lg transition-colors"
+                style={{ color: theme.text.muted }}
               >
-                ✕
+                <X size={20} />
               </button>
             </div>
 
@@ -317,9 +340,16 @@ const TimelapsePlayer = () => {
 
       {/* Empty State */}
       {videos.length === 0 && (
-        <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+        <div
+          className="text-center py-12 rounded-xl border"
+          style={{
+            backgroundColor: theme.bg.card,
+            borderColor: theme.border.default,
+            color: theme.text.muted
+          }}
+        >
           <Film size={48} className="mx-auto mb-4 opacity-50" />
-          <p>Keine Videos gefunden</p>
+          <p style={{ color: theme.text.secondary }}>Keine Videos gefunden</p>
           <p className="text-sm mt-1">
             {filterStatus === 'all'
               ? 'Erstelle dein erstes Timelapse-Video'

@@ -14,13 +14,13 @@ require('./services/mqttService'); // Startet MQTT
 
 // Datenbankverbindung initialisieren
 connectDB().then(async () => {
-  // Initialisiere Grow-Rezept Templates nach erfolgreicher DB-Verbindung
-  const recipeController = require('./controllers/recipeController');
-  recipeController.initializeTemplates();
-
   // Starte Plant Tracking Service (unified: replaces autoGrowthLogger + autoPlantTracking)
   const plantTrackingService = require('./services/plantTrackingService');
   plantTrackingService.start();
+
+  // Starte Plant Analysis Service (Gemini Vision - 1x täglich)
+  const plantAnalysisService = require('./services/plantAnalysisService');
+  plantAnalysisService.start();
 
   // Initialize Automation Service with MongoDB config persistence
   const { initializeAutomation } = require('./services/automationService');
@@ -30,8 +30,8 @@ connectDB().then(async () => {
 const app = express();
 const server = http.createServer(app);
 
-// Trust proxy (wichtig für Nginx reverse proxy)
-app.set('trust proxy', true);
+// Trust proxy (nur für localhost/private IPs)
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
 // ========================================
 // 🔒 SECURITY MIDDLEWARE

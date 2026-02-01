@@ -68,19 +68,38 @@ DeviceStateSchema.statics.getLatest = async function() {
   return this.findOne({}).sort({ timestamp: -1 }).lean();
 };
 
-// Statische Methode: Status updaten/erstellen
+// Statische Methode: Status updaten/erstellen (upsert - max 1 Dokument pro Device)
 DeviceStateSchema.statics.updateState = async function(updates) {
-  const currentState = await this.getLatest() || {};
+  const device = updates.device || "esp32_main";
 
-  const newState = new this({
-    device: updates.device || "esp32_main",
-    relays: { ...currentState.relays, ...updates.relays },
-    pwm: { ...currentState.pwm, ...updates.pwm },
-    feedback: { ...currentState.feedback, ...updates.feedback },
-    rj11: { ...currentState.rj11, ...updates.rj11 }
-  });
+  // Build $set object für verschachtelte Felder
+  const setObj = { timestamp: new Date() };
+  if (updates.relays) {
+    for (const [key, val] of Object.entries(updates.relays)) {
+      setObj[`relays.${key}`] = val;
+    }
+  }
+  if (updates.pwm) {
+    for (const [key, val] of Object.entries(updates.pwm)) {
+      setObj[`pwm.${key}`] = val;
+    }
+  }
+  if (updates.feedback) {
+    for (const [key, val] of Object.entries(updates.feedback)) {
+      setObj[`feedback.${key}`] = val;
+    }
+  }
+  if (updates.rj11) {
+    for (const [key, val] of Object.entries(updates.rj11)) {
+      setObj[`rj11.${key}`] = val;
+    }
+  }
 
-  return newState.save();
+  return this.findOneAndUpdate(
+    { device },
+    { $set: setObj },
+    { upsert: true, new: true, setDefaultsOnInsert: true }
+  );
 };
 
 module.exports = mongoose.model('DeviceState', DeviceStateSchema);

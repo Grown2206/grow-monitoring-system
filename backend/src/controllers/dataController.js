@@ -8,7 +8,7 @@ const saveSensorData = async (dataPayload) => {
 
     // WICHTIG: Wir nutzen die Durchschnittswerte, die der ESP32 bereits berechnet hat!
     // Falls der ESP32 'temp' sendet (v3.3), nutzen wir das.
-    // Falls Sensoren 0.0 sind, ignorieren wir sie für die DB-Speicherung nicht (Rohdaten),
+    // Falls Sensoren 0.0 sind, ignorieren wir sie fÔøΩr die DB-Speicherung nicht (Rohdaten),
     // aber der Hauptwert 'temp' muss stimmen.
     
     const avgTemp = dataPayload.temp; // Der ESP32 sendet jetzt den korrekten Durchschnitt
@@ -17,11 +17,11 @@ const saveSensorData = async (dataPayload) => {
     const newLog = new SensorLog({
       device: "esp32_main",
       readings: {
-        // HAUPTWERTE (Wichtig für Diagramme!)
+        // HAUPTWERTE (Wichtig fÔøΩr Diagramme!)
         temp: avgTemp, 
         humidity: avgHum,
 
-        // Einzel-Sensoren (Rohdaten für Details)
+        // Einzel-Sensoren (Rohdaten fÔøΩr Details)
         temp_bottom: dataPayload.temp_bottom,
         temp_middle: dataPayload.temp_middle,
         temp_top: dataPayload.temp_top,
@@ -34,7 +34,17 @@ const saveSensorData = async (dataPayload) => {
         lux: dataPayload.lux,
         tankLevel: dataPayload.tank,
         gasLevel: dataPayload.gas,
-        soilMoisture: dataPayload.soil
+        soilMoisture: dataPayload.soil,
+
+        // VL53L0X Pflanzenh√∂hen (mm)
+        heights: dataPayload.heights,
+
+        // ENS160 + AHT21 Luftqualit√§t
+        ens160_eco2: dataPayload.ens160_eco2,
+        ens160_tvoc: dataPayload.ens160_tvoc,
+        ens160_aqi: dataPayload.ens160_aqi,
+        aht21_temp: dataPayload.aht21_temp,
+        aht21_humidity: dataPayload.aht21_humidity
       }
     });
 
@@ -53,7 +63,7 @@ const saveSensorData = async (dataPayload) => {
       });
     }
 
-    console.log(`?? Daten gespeichert (Temp ?: ${avgTemp}ÆC, Hum ?: ${avgHum}%)`);
+    console.log(`?? Daten gespeichert (Temp ?: ${avgTemp}ÔøΩC, Hum ?: ${avgHum}%)`);
     return true;
 
   } catch (error) {
@@ -62,35 +72,45 @@ const saveSensorData = async (dataPayload) => {
   }
 };
 
-// API Route: Gibt Sensor-Historie mit Pagination zurück
+// API Route: Gibt Sensor-Historie mit Pagination zur√ºck
 const getHistory = async (req, res, next) => {
   try {
     const {
       hours = 24,
       page = 1,
-      limit, 
+      limit = 500,
       sort = 'timestamp',
       order = 'asc'
     } = req.query;
 
+    const parsedLimit = Math.min(parseInt(limit) || 500, 2000); // Max 2000 pro Seite
+    const parsedPage = Math.max(parseInt(page) || 1, 1);
+    const skip = (parsedPage - 1) * parsedLimit;
+    const sortOrder = order === 'desc' ? -1 : 1;
+
     const hoursAgo = new Date(Date.now() - hours * 60 * 60 * 1000);
+    const filter = { timestamp: { $gte: hoursAgo } };
 
     const [history, total] = await Promise.all([
-      SensorLog.find({ timestamp: { $gte: hoursAgo } })
-        .sort({ timestamp: 1 })
+      SensorLog.find(filter)
+        .sort({ timestamp: sortOrder })
+        .skip(skip)
+        .limit(parsedLimit)
         .lean(),
-      SensorLog.countDocuments({ timestamp: { $gte: hoursAgo } })
+      SensorLog.countDocuments(filter)
     ]);
+
+    const totalPages = Math.ceil(total / parsedLimit);
 
     res.json({
       success: true,
       data: history,
       pagination: {
-        total: history.length,
-        page: 1,
-        limit: history.length,
-        pages: 1,
-        hasMore: false
+        total,
+        page: parsedPage,
+        limit: parsedLimit,
+        pages: totalPages,
+        hasMore: parsedPage < totalPages
       },
       meta: {
         hours: parseInt(hours),
@@ -100,7 +120,7 @@ const getHistory = async (req, res, next) => {
       }
     });
   } catch (error) {
-    console.error("? Fehler in getHistory:", error);
+    console.error("‚ùå Fehler in getHistory:", error);
     next(error);
   }
 };

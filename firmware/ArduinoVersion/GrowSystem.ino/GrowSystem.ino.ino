@@ -13,6 +13,9 @@
  * - ArduinoJson (v7 kompatibel)
  * - Adafruit SHT31
  * - BH1750
+ * - VL53L0X (Pololu) - ToF Distanz-Sensoren für Pflanzenhöhe
+ * - ScioSense_ENS160 - Luftqualität (eCO2, TVOC, AQI)
+ * - Adafruit AHTX0 - AHT21 Temperatur & Luftfeuchtigkeit
  *
  * HARDWARE SETUP FÜR 3 SHT31 SENSOREN:
  * I2C Bus: GPIO 21 (SDA), GPIO 22 (SCL)
@@ -43,6 +46,9 @@
 #include <Adafruit_SHT31.h>
 #include <BH1750.h>
 #include <ArduinoJson.h>
+#include <VL53L0X.h>
+#include <ScioSense_ENS160.h>   // ENS160 Luftqualitäts-Sensor (eCO2, TVOC, AQI)
+#include <Adafruit_AHTX0.h>     // AHT21 Temperatur & Luftfeuchtigkeit
 
 // ==========================================
 // 1. KONFIGURATION
@@ -119,6 +125,35 @@ bool sht31_top_ok = false;
 
 BH1750 lightMeter;
 
+// ENS160 + AHT21 Luftqualitäts-Sensor (Combo Board)
+// Direkt auf I2C Bus (kein Multiplexer nötig)
+// ENS160: 0x53 (Combo Board Default), AHT21: 0x38
+ScioSense_ENS160 ens160(ENS160_I2CADDR_1);  // 0x53
+Adafruit_AHTX0 aht21;
+bool ens160_ok = false;
+bool aht21_ok = false;
+
+// ==========================================
+// TCA9548A I2C MULTIPLEXER + VL53L0X ToF SENSOREN
+// ==========================================
+#define TCA9548A_ADDR 0x70
+
+// 6x VL53L0X für Pflanzenhöhen-Messung
+#define NUM_TOF_SENSORS 6
+VL53L0X tofSensors[NUM_TOF_SENSORS];
+bool tofSensorOk[NUM_TOF_SENSORS] = {false};
+int plantHeight_mm[NUM_TOF_SENSORS] = {0};  // Berechnete Pflanzenhöhe in mm
+
+// Montage-Höhe: Abstand Sensor → Topf-Oberfläche in mm
+// MUSS nach Installation kalibriert werden!
+// Kann auch als Array definiert werden falls Sensoren auf unterschiedlichen Höhen
+int TOF_MOUNT_HEIGHT_MM[NUM_TOF_SENSORS] = {800, 800, 800, 800, 800, 800};
+
+// TCA9548A Channel-Zuordnung
+// Ch 0-5: VL53L0X Sensoren (Pflanze 1-6)
+// Ch 6:   SHT31-Top (0x44)
+// Ch 7:   Frei (Erweiterung, z.B. VL53L1X)
+
 unsigned long lastMsg = 0;
 #define MSG_INTERVAL 5000
 
@@ -191,6 +226,49 @@ void setLightEnable(bool enabled) {
   digitalWrite(PIN_RJ11_ENABLE, enabled ? HIGH : LOW);
   Serial.print("RJ11 Light: ");
   Serial.println(enabled ? "ENABLED" : "DISABLED");
+}
+
+// ==========================================
+// TCA9548A MULTIPLEXER FUNKTIONEN
+// ==========================================
+
+// I2C Multiplexer Channel auswählen
+void tcaSelect(uint8_t channel) {
+  if (channel > 7) return;
+  Wire.beginTransmission(TCA9548A_ADDR);
+  Wire.write(1 << channel);
+  Wire.endTransmission();
+}
+
+// Alle Channels deaktivieren (verhindert Bus-Konflikte)
+void tcaDisable() {
+  Wire.beginTransmission(TCA9548A_ADDR);
+  Wire.write(0);
+  Wire.endTransmission();
+}
+
+// Pflanzenhöhen via VL53L0X ToF Sensoren messen
+void readPlantHeights() {
+  for (int i = 0; i < NUM_TOF_SENSORS; i++) {
+    if (!tofSensorOk[i]) {
+      plantHeight_mm[i] = -1;  // Sensor nicht verfügbar
+      continue;
+    }
+
+    tcaSelect(i);
+    delay(5);
+
+    int distance = tofSensors[i].readRangeContinuousMillimeters();
+
+    if (tofSensors[i].timeoutOccurred() || distance > 2000 || distance <= 0) {
+      plantHeight_mm[i] = -1;  // Ungültige Messung
+    } else {
+      // Pflanzenhöhe = Montage-Höhe minus gemessene Distanz
+      plantHeight_mm[i] = TOF_MOUNT_HEIGHT_MM[i] - distance;
+      if (plantHeight_mm[i] < 0) plantHeight_mm[i] = 0;
+    }
+  }
+  tcaDisable();
 }
 
 // RPM aus Tachometer berechnen
@@ -418,22 +496,32 @@ void callback(char* topic, byte* payload, unsigned int length) {
   }
 }
 
+// Non-blocking MQTT Reconnect (blockiert nicht mehr den Loop!)
+unsigned long lastReconnectAttempt = 0;
+#define RECONNECT_INTERVAL 5000  // 5 Sekunden zwischen Versuchen
+
 void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Verbinde mit MQTT (Cloud)...");
-    String clientId = "ESP32-Drexl-" + String(random(0xffff), HEX);
-    
-    if (client.connect(clientId.c_str())) {
-      Serial.println("verbunden!");
-      client.subscribe(MQTT_TOPIC_CONFIG);
-      client.subscribe(MQTT_TOPIC_COMMAND);
-      client.subscribe(MQTT_TOPIC_NUTRIENT_CMD);  // Nährstoff-Commands
-      Serial.println("Subscribed: Haupt-System + Nährstoffe");
-    } else {
-      Serial.print("Fehler, rc="); Serial.print(client.state());
-      Serial.println(" warte 5s...");
-      delay(5000);
-    }
+  // Non-blocking: Nur ein Versuch pro Aufruf, dann zurück zum Loop
+  if (client.connected()) return;
+
+  unsigned long now = millis();
+  if (now - lastReconnectAttempt < RECONNECT_INTERVAL) return;
+  lastReconnectAttempt = now;
+
+  Serial.print("Verbinde mit MQTT...");
+  String clientId = "ESP32-Drexl-" + String(random(0xffff), HEX);
+
+  if (client.connect(clientId.c_str())) {
+    Serial.println("verbunden!");
+    client.subscribe(MQTT_TOPIC_CONFIG);
+    client.subscribe(MQTT_TOPIC_COMMAND);
+    client.subscribe(MQTT_TOPIC_NUTRIENT_CMD);
+    Serial.println("Subscribed: Haupt-System + Nährstoffe");
+    lastReconnectAttempt = 0;  // Reset für nächste Trennung
+  } else {
+    Serial.print("Fehler, rc="); Serial.print(client.state());
+    Serial.println(" nächster Versuch in 5s...");
+    // KEIN delay() hier! Loop läuft weiter und Sensoren werden gelesen
   }
 }
 
@@ -552,10 +640,56 @@ void setup() {
     sht31_middle_ok = false;
   }
 
-  // SHT31 #3 (Oben) - Optional, für zukünftige Erweiterung
-  // Würde einen zweiten I2C Bus oder Multiplexer benötigen
-  Serial.println("ℹ️  SHT31 Oben: Noch nicht installiert (wird 0.0 senden)");
-  sht31_top_ok = false;
+  // ==========================================
+  // TCA9548A MULTIPLEXER + SENSOREN INITIALISIEREN
+  // ==========================================
+  Serial.println("=== Initialisiere TCA9548A Multiplexer ===");
+
+  // Prüfe ob TCA9548A vorhanden ist
+  Wire.beginTransmission(TCA9548A_ADDR);
+  byte tcaError = Wire.endTransmission();
+
+  if (tcaError == 0) {
+    Serial.println("✅ TCA9548A Multiplexer an 0x70 gefunden");
+
+    // SHT31 #3 (Oben) via TCA9548A Channel 6
+    tcaSelect(6);
+    delay(10);
+    if (sht31_top.begin(0x44)) {
+      Serial.println("  ✅ SHT31 Oben (Ch 6, 0x44) bereit");
+      sht31_top_ok = true;
+    } else {
+      Serial.println("  ℹ️  SHT31 Oben (Ch 6): Nicht gefunden");
+      sht31_top_ok = false;
+    }
+    tcaDisable();
+
+    // VL53L0X ToF Sensoren auf Channel 0-5 initialisieren
+    Serial.println("=== Initialisiere VL53L0X ToF Sensoren ===");
+    for (int i = 0; i < NUM_TOF_SENSORS; i++) {
+      tcaSelect(i);
+      delay(10);
+
+      tofSensors[i].setTimeout(500);
+      if (tofSensors[i].init()) {
+        // Hohe Genauigkeit: 200ms Timing Budget
+        tofSensors[i].setMeasurementTimingBudget(200000);
+        tofSensors[i].startContinuous();
+        tofSensorOk[i] = true;
+        Serial.printf("  ✅ VL53L0X #%d (Ch %d): OK - Pflanze %d\n", i+1, i, i+1);
+      } else {
+        tofSensorOk[i] = false;
+        Serial.printf("  ℹ️  VL53L0X #%d (Ch %d): Nicht gefunden\n", i+1, i);
+      }
+    }
+    tcaDisable();
+
+  } else {
+    Serial.println("ℹ️  TCA9548A Multiplexer nicht gefunden (0x70)");
+    Serial.println("   → VL53L0X + SHT31-Top deaktiviert");
+    sht31_top_ok = false;
+    for (int i = 0; i < NUM_TOF_SENSORS; i++) tofSensorOk[i] = false;
+  }
   Serial.println();
 
   if (!lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) {
@@ -564,17 +698,63 @@ void setup() {
     Serial.println("✅ BH1750 bereit");
   }
 
+  // ==========================================
+  // ENS160 + AHT21 LUFTQUALITÄTS-SENSOR INITIALISIEREN
+  // ==========================================
+  Serial.println("\n=== Initialisiere ENS160 + AHT21 ===");
+
+  // TCA9548A deaktivieren damit direkte I2C Geräte erreichbar sind
+  tcaDisable();
+  delay(10);
+
+  // AHT21 zuerst initialisieren (für ENS160 Kompensation)
+  if (aht21.begin()) {
+    Serial.println("  ✅ AHT21 (0x38) bereit");
+    aht21_ok = true;
+  } else {
+    Serial.println("  ❌ AHT21 (0x38) nicht gefunden!");
+    aht21_ok = false;
+  }
+
+  // ENS160 initialisieren
+  if (ens160.begin()) {
+    Serial.println("  ✅ ENS160 (0x53) bereit");
+    ens160_ok = true;
+
+    // Standard-Modus setzen (Messung aktiv)
+    if (ens160.setMode(ENS160_OPMODE_STD)) {
+      Serial.println("  ✅ ENS160 Standard-Modus aktiv");
+    }
+
+    // Kompensationswerte von AHT21 setzen (falls verfügbar)
+    if (aht21_ok) {
+      sensors_event_t hum_event, temp_event;
+      aht21.getEvent(&hum_event, &temp_event);
+      float ahtTemp = temp_event.temperature;
+      float ahtHum = hum_event.relative_humidity;
+      if (!isnan(ahtTemp) && !isnan(ahtHum)) {
+        ens160.set_envdata(ahtTemp, ahtHum);
+        Serial.printf("  ✅ ENS160 Kompensation: %.1f°C, %.1f%%\n", ahtTemp, ahtHum);
+      }
+    }
+  } else {
+    Serial.println("  ❌ ENS160 (0x53) nicht gefunden!");
+    ens160_ok = false;
+  }
+  Serial.println();
+
   setup_wifi();
   client.setServer(MQTT_SERVER, MQTT_PORT);
-  client.setBufferSize(2048);  // Erhöhe MQTT Buffer für große JSON-Nachrichten
+  client.setBufferSize(4096);  // Erhöhe MQTT Buffer für große JSON-Nachrichten (alle Sensoren)
   client.setCallback(callback);
 
   Serial.println("✅ PWM & RJ11 Steuerung initialisiert (Core 3.0)");
 }
 
 void loop() {
+  // Non-blocking: reconnect() versucht nur einmal alle 5s, blockiert nicht
   if (!client.connected()) reconnect();
-  client.loop();
+  if (client.connected()) client.loop();
 
   // RPM kontinuierlich berechnen
   updateFanRPM();
@@ -634,8 +814,16 @@ void loop() {
     float h_bottom = sht31_bottom_ok ? sht31_bottom.readHumidity() : NAN;
     float t_middle = sht31_middle_ok ? sht31_middle.readTemperature() : NAN;
     float h_middle = sht31_middle_ok ? sht31_middle.readHumidity() : NAN;
-    float t_top = sht31_top_ok ? sht31_top.readTemperature() : NAN;
-    float h_top = sht31_top_ok ? sht31_top.readHumidity() : NAN;
+
+    // SHT31-Top über TCA9548A Channel 6 lesen
+    float t_top = NAN;
+    float h_top = NAN;
+    if (sht31_top_ok) {
+      tcaSelect(6);
+      t_top = sht31_top.readTemperature();
+      h_top = sht31_top.readHumidity();
+      tcaDisable();
+    }
 
     // Sensordaten mit neuen Feldnamen (für Backend Kompatibilität)
     doc["temp_bottom"] = isnan(t_bottom) ? 0.0 : t_bottom;
@@ -645,15 +833,17 @@ void loop() {
     doc["temp_top"] = isnan(t_top) ? 0.0 : t_top;
     doc["humidity_top"] = isnan(h_top) ? 0.0 : h_top;
 
-    // Durchschnittswerte berechnen (nur Sensoren > 0 berücksichtigen)
+    // Durchschnittswerte berechnen
+    // Temperatur: > -40 (SHT31 Messbereich: -40 bis +125°C, 0°C ist gültiger Wert!)
+    // Humidity: > 0 (0% ist technisch ungültig für SHT31)
     float tempSum = 0.0;
     float humSum = 0.0;
     int tempCount = 0;
     int humCount = 0;
 
-    if (!isnan(t_bottom) && t_bottom > 0) { tempSum += t_bottom; tempCount++; }
-    if (!isnan(t_middle) && t_middle > 0) { tempSum += t_middle; tempCount++; }
-    if (!isnan(t_top) && t_top > 0) { tempSum += t_top; tempCount++; }
+    if (!isnan(t_bottom) && t_bottom > -40) { tempSum += t_bottom; tempCount++; }
+    if (!isnan(t_middle) && t_middle > -40) { tempSum += t_middle; tempCount++; }
+    if (!isnan(t_top) && t_top > -40) { tempSum += t_top; tempCount++; }
 
     if (!isnan(h_bottom) && h_bottom > 0) { humSum += h_bottom; humCount++; }
     if (!isnan(h_middle) && h_middle > 0) { humSum += h_middle; humCount++; }
@@ -678,7 +868,54 @@ void loop() {
     doc["lightPWM"] = lightPWMValue;
     doc["fanRPM"] = fanRPM;
 
-    char buffer[1024];
+    // VL53L0X Pflanzenhöhen messen und hinzufügen
+    readPlantHeights();
+    JsonArray heights = doc["heights"].to<JsonArray>();
+    for (int i = 0; i < NUM_TOF_SENSORS; i++) {
+      heights.add(plantHeight_mm[i]);  // mm, -1 = ungültig
+    }
+
+    // ==========================================
+    // ENS160 + AHT21 Luftqualität auslesen
+    // ==========================================
+    tcaDisable();  // Sicherstellen: direkte I2C Geräte erreichbar
+    delay(10);  // I2C Bus braucht Zeit zur Stabilisierung nach MUX-Umschaltung
+
+    float aht21_t = NAN;
+    float aht21_h = NAN;
+
+    if (aht21_ok) {
+      sensors_event_t hum_event, temp_event;
+      aht21.getEvent(&hum_event, &temp_event);
+      aht21_t = temp_event.temperature;
+      aht21_h = hum_event.relative_humidity;
+    }
+
+    // ENS160 Kompensation mit aktuellen AHT21-Werten aktualisieren
+    if (ens160_ok && aht21_ok && !isnan(aht21_t) && !isnan(aht21_h)) {
+      ens160.set_envdata(aht21_t, aht21_h);
+    }
+
+    int ens160_eco2_val = 0;
+    int ens160_tvoc_val = 0;
+    int ens160_aqi_val = 0;
+
+    if (ens160_ok) {
+      if (ens160.measure()) {
+        ens160_eco2_val = ens160.geteCO2();
+        ens160_tvoc_val = ens160.getTVOC();
+        ens160_aqi_val = ens160.getAQI();
+      }
+    }
+
+    // Air Quality Daten zum JSON hinzufügen
+    doc["ens160_eco2"] = ens160_eco2_val;                       // ppm (400-65000)
+    doc["ens160_tvoc"] = ens160_tvoc_val;                       // ppb (0-65000)
+    doc["ens160_aqi"] = ens160_aqi_val;                         // 1-5 (UBA Skala)
+    doc["aht21_temp"] = isnan(aht21_t) ? 0.0 : aht21_t;        // °C
+    doc["aht21_humidity"] = isnan(aht21_h) ? 0.0 : aht21_h;    // %
+
+    char buffer[3072];  // Vergrößert für alle Sensoren inkl. ENS160+AHT21
     serializeJson(doc, buffer);
 
     if(client.publish(MQTT_TOPIC_DATA, buffer)) {

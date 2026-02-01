@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Settings, Camera, Film, Trash2, Clock, HardDrive, Play, Calendar } from 'lucide-react';
+import { Settings, Camera, Film, Trash2, Clock, HardDrive, Play, Calendar, Loader2 } from 'lucide-react';
 import { useAlert } from '../../context/AlertContext';
 import { useTheme } from '../../theme';
+import toast from '../../utils/toast';
 import settingsService from '../../services/settingsService';
 import { Input, Select, SaveButton } from '../common/Form';
 import { SettingsSection, StatCard } from '../common/Settings';
@@ -65,12 +66,13 @@ const TimelapseSettings = () => {
       });
 
       await fetchStatistics();
-    }, '✅ Snapshot erfolgreich erfasst!');
+      toast.success('Snapshot erfolgreich erfasst!');
+    });
   };
 
   const generateVideo = async () => {
     if (!videoForm.title || !videoForm.startDate || !videoForm.endDate) {
-      showAlert('Bitte fülle alle Pflichtfelder aus', 'warning');
+      toast.warning('Bitte fülle alle Pflichtfelder aus');
       return;
     }
 
@@ -99,7 +101,9 @@ const TimelapseSettings = () => {
         format: 'mp4',
         codec: 'h264'
       });
-    }, '✅ Video-Generierung gestartet! Dies kann einige Minuten dauern.');
+
+      toast.success('Video-Generierung gestartet!');
+    });
   };
 
   const runCleanup = async () => {
@@ -108,10 +112,7 @@ const TimelapseSettings = () => {
     await execute(async () => {
       const result = await settingsService.cleanupCaptures(parseInt(cleanupDays));
 
-      showAlert(
-        `✅ ${result.data.deletedCount} Captures gelöscht, ${result.data.freedSpaceMB} MB freigegeben`,
-        'success'
-      );
+      toast.success(`${result.data.deletedCount} Captures gelöscht, ${result.data.freedSpaceMB} MB freigegeben`);
 
       await fetchStatistics();
     });

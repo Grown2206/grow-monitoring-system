@@ -167,13 +167,42 @@ class AutomationEngine {
     try {
       switch (action.type) {
         case 'mqtt':
-          const command = {
-            action: action.command,
-            device: action.device,
-            value: action.value
-          };
+          // ESP32 erwartet Format: { action: "set_relay", relay: "light", state: true }
+          // oder: { action: "set_fan_pwm", value: 128 }
+          let command = {};
+
+          // Map action.command to ESP32 action format
+          if (action.command === 'ON' || action.command === 'OFF') {
+            command = {
+              action: 'set_relay',
+              relay: action.device, // z.B. "light", "fan_exhaust"
+              state: action.command === 'ON'
+            };
+          } else if (action.command === 'PWM' || action.command === 'SET_PWM') {
+            // PWM Steuerung (0-100 -> 0-255)
+            const pwmValue = Math.round((action.value / 100) * 255);
+            if (action.device === 'fan_exhaust' || action.device === 'fan') {
+              command = {
+                action: 'set_fan_pwm',
+                value: pwmValue
+              };
+            } else if (action.device === 'light' || action.device === 'grow_light') {
+              command = {
+                action: 'set_light_pwm',
+                value: pwmValue
+              };
+            }
+          } else {
+            // Fallback: Direkt durchreichen
+            command = {
+              action: action.command,
+              device: action.device,
+              value: action.value
+            };
+          }
+
           mqttService.publish(TOPICS.COMMAND, JSON.stringify(command));
-          console.log(`📡 [${ruleName}] MQTT: ${action.device} -> ${action.command} (${action.value})`);
+          console.log(`📡 [${ruleName}] MQTT Command: ${JSON.stringify(command)}`);
           break;
 
         case 'delay':

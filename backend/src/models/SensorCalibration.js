@@ -8,7 +8,7 @@ const mongoose = require('mongoose');
 const SensorCalibrationSchema = new mongoose.Schema({
   sensorType: {
     type: String,
-    enum: ['ec', 'ph'],
+    enum: ['ec', 'ph', 'tof'],
     required: true
   },
 
@@ -67,6 +67,17 @@ const SensorCalibrationSchema = new mongoose.Schema({
       type: Number,
       description: 'pH probe slope (quality indicator, ideal: 59.16 mV/pH at 25°C)'
     }
+  },
+
+  // VL53L0X ToF Configuration
+  tofConfig: {
+    sensors: [{
+      slot: { type: Number, min: 1, max: 6 },
+      mountHeight_mm: { type: Number, default: 800 },
+      offset_mm: { type: Number, default: 0 },
+      label: { type: String, default: '' },
+      enabled: { type: Boolean, default: true }
+    }]
   },
 
   // Temperature Compensation

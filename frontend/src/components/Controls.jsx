@@ -5,13 +5,14 @@ import { controlsAPI } from '../utils/api';
 import { useTheme, colors } from '../theme';
 import {
   Lock, Unlock, AlertTriangle, Power, Zap, Wind, Droplets, Lightbulb,
-  Timer, ShieldAlert, Wrench, Leaf, Activity, History, Sun, Moon, Clock,
-  Settings, Play, Pause, RotateCw, TrendingUp, Gauge, Droplet, Fan,
-  Calendar, Sliders, Thermometer, Target, Zap as Lightning, Plus, Minus,
-  Save, BarChart3, Flame, Snowflake, CloudRain, Brain, Cpu, Beaker
+  ShieldAlert, Activity, History, Sun, Moon, Clock,
+  Settings, Gauge, Droplet, Fan,
+  Sliders, Thermometer, Zap as Lightning,
+  BarChart3, Cpu, Beaker, Brain, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { useAlert } from '../context/AlertContext';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
+import toast from '../utils/toast';
 
 // ==================== SAFETY COLORS FIX ====================
 const FALLBACK_COLORS = {
@@ -47,7 +48,8 @@ const LogItem = ({ timestamp, message, type, theme }) => (
 // Device Card mit erweiterten Features
 const DeviceCard = ({
   id, label, subLabel, isOn, onToggle, disabled, icon: Icon, iconColor, iconBg,
-  watts, runtime, health = 100, dimLevel, onDimChange, supportsDim, pin, theme
+  watts, runtime, health = 100, dimLevel, onDimChange, supportsDim, pin, theme,
+  autoControlled = false, autoReason = null
 }) => {
   const activeGlow = isOn && iconColor ? `0 0 20px ${iconColor}40` : 'none';
 
@@ -61,6 +63,15 @@ const DeviceCard = ({
         opacity: disabled ? 0.5 : 1
       }}
     >
+      {/* Auto-Control Badge */}
+      {autoControlled && (
+        <div className="absolute top-2 right-2 px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1"
+             style={{ backgroundColor: 'rgba(16, 185, 129, 0.2)', color: getSafeColor('emerald', 400) }}>
+          <Brain size={10} />
+          AUTO
+        </div>
+      )}
+
       <div className="flex justify-between items-start">
         <div className="flex items-center gap-3">
           <div
@@ -78,6 +89,11 @@ const DeviceCard = ({
               {subLabel}
               {pin && <span className="ml-2 font-mono opacity-60">· Pin {pin}</span>}
             </p>
+            {autoReason && (
+              <p className="text-[10px] mt-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 inline-block">
+                {autoReason}
+              </p>
+            )}
           </div>
         </div>
 
@@ -85,7 +101,7 @@ const DeviceCard = ({
         <button
           onClick={onToggle}
           disabled={disabled}
-          className="relative w-12 h-7 rounded-full transition-colors duration-300 focus:outline-none"
+          className="relative w-12 h-7 rounded-full transition-colors duration-300 focus:outline-none mt-3"
           style={{
             backgroundColor: isOn ? getSafeColor('emerald', 600) : theme.bg.hover,
             cursor: disabled ? 'not-allowed' : 'pointer'
@@ -146,56 +162,6 @@ const DeviceCard = ({
     </div>
   );
 };
-
-// Scene Preset Card
-const SceneCard = ({ icon: Icon, title, description, isActive, onClick, theme, color }) => (
-  <button
-    onClick={onClick}
-    className="p-4 rounded-xl border transition-all text-left group relative overflow-hidden"
-    style={{
-      backgroundColor: isActive ? `${color}10` : theme.bg.card,
-      borderColor: isActive ? color : theme.border.default
-    }}
-  >
-    <div className="relative z-10">
-      <Icon size={24} className="mb-2 transition-transform group-hover:scale-110" style={{ color }} />
-      <div className="font-bold mb-1" style={{ color: theme.text.primary }}>{title}</div>
-      <div className="text-xs" style={{ color: theme.text.muted }}>{description}</div>
-    </div>
-    {isActive && (
-      <div className="absolute top-2 right-2 w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: color }} />
-    )}
-  </button>
-);
-
-// Schedule Entry
-const ScheduleEntry = ({ time, action, enabled, onToggle, theme }) => (
-  <div
-    className="flex items-center justify-between p-3 rounded-lg border"
-    style={{
-      backgroundColor: theme.bg.card,
-      borderColor: theme.border.default
-    }}
-  >
-    <div className="flex items-center gap-3">
-      <Clock size={16} style={{ color: theme.accent.color }} />
-      <div>
-        <div className="font-mono font-bold" style={{ color: theme.text.primary }}>{time}</div>
-        <div className="text-xs" style={{ color: theme.text.muted }}>{action}</div>
-      </div>
-    </div>
-    <button
-      onClick={onToggle}
-      className="w-10 h-6 rounded-full transition-colors"
-      style={{ backgroundColor: enabled ? getSafeColor('emerald', 600) : theme.bg.hover }}
-    >
-      <span
-        className="block w-4 h-4 rounded-full bg-white shadow-sm transition-transform mt-1 ml-1"
-        style={{ transform: enabled ? 'translateX(16px)' : 'translateX(0)' }}
-      />
-    </button>
-  </div>
-);
 
 // Power Monitor Chart
 const PowerChart = ({ data, theme }) => (
@@ -382,9 +348,9 @@ export default function Controls() {
 
   // State
   const [safetyLocked, setSafetyLocked] = useState(true);
+  const [showUnlockConfirm, setShowUnlockConfirm] = useState(false);
+  const [gpioExpanded, setGpioExpanded] = useState(false);
   const [logs, setLogs] = useState([]);
-  const [activeScene, setActiveScene] = useState(null);
-  const [showSchedules, setShowSchedules] = useState(false);
 
   // Relais State mit erweiterten Infos
   const [devices, setDevices] = useState({
@@ -398,34 +364,23 @@ export default function Controls() {
     dehumidifier: { on: false, runtime: 0, health: 85 }
   });
 
-  // PWM State (0-100%)
-  const [fanPWM, setFanPWM] = useState(0);
-  const [lightPWM, setLightPWM] = useState(0);
-  const [lightRJ11Enabled, setLightRJ11Enabled] = useState(false);
-  const [fanRPM, setFanRPM] = useState(0);
-
-  // Automation Rules
-  const [automation, setAutomation] = useState({
-    tempControl: { enabled: true, target: 24, range: 2 },
-    humidityControl: { enabled: true, target: 60, range: 10 },
-    vpdControl: { enabled: false, target: 1.0, range: 0.2 },
-    autoWatering: { enabled: true, threshold: 30, duration: 5 }
+  // PWM State (0-100%) - mit localStorage Persistierung
+  const [fanPWM, setFanPWM] = useState(() => {
+    const saved = localStorage.getItem('controls_fanPWM');
+    return saved ? parseInt(saved) : 0;
   });
-
-  // Schedules
-  const [schedules, setSchedules] = useState([
-    { id: 1, time: '06:00', action: 'Licht AN (Sunrise)', enabled: true },
-    { id: 2, time: '08:00', action: 'Bewässerung Start', enabled: true },
-    { id: 3, time: '12:00', action: 'Umluft Boost', enabled: true },
-    { id: 4, time: '18:00', action: 'Licht Dimmen 50%', enabled: false },
-    { id: 5, time: '22:00', action: 'Licht AUS (Sunset)', enabled: true }
-  ]);
+  const [lightPWM, setLightPWM] = useState(() => {
+    const saved = localStorage.getItem('controls_lightPWM');
+    return saved ? parseInt(saved) : 0;
+  });
+  const [lightRJ11Enabled, setLightRJ11Enabled] = useState(() => {
+    const saved = localStorage.getItem('controls_lightRJ11Enabled');
+    return saved === 'true';
+  });
+  const [fanRPM, setFanRPM] = useState(0);
 
   // Power Monitor Data (Mock)
   const [powerHistory, setPowerHistory] = useState([]);
-
-  const [maintenanceMode, setMaintenanceMode] = useState(null);
-  const [timeLeft, setTimeLeft] = useState(0);
 
   // Cycle Info
   const cycleInfo = { start: 6, end: 22, current: new Date().getHours() };
@@ -445,16 +400,24 @@ export default function Controls() {
                 updated[key].on = state.automation.relays[key];
               }
             });
+            // Save to localStorage für Persistierung
+            localStorage.setItem('controls_devices', JSON.stringify(updated));
             return updated;
           });
           // PWM States
           if (state.automation.pwm) {
-            setFanPWM(state.automation.pwm.fan_exhaust || 0);
-            setLightPWM(state.automation.pwm.grow_light || 0);
+            const fanPWM = state.automation.pwm.fan_exhaust || 0;
+            const lightPWM = state.automation.pwm.grow_light || 0;
+            setFanPWM(fanPWM);
+            setLightPWM(lightPWM);
+            localStorage.setItem('controls_fanPWM', fanPWM.toString());
+            localStorage.setItem('controls_lightPWM', lightPWM.toString());
           }
           // RJ11 State
           if (state.automation.rj11) {
-            setLightRJ11Enabled(state.automation.rj11.enabled || false);
+            const enabled = state.automation.rj11.enabled || false;
+            setLightRJ11Enabled(enabled);
+            localStorage.setItem('controls_lightRJ11Enabled', enabled.toString());
           }
         }
       } catch (error) {
@@ -515,59 +478,37 @@ export default function Controls() {
     return () => clearInterval(interval);
   }, []);
 
-  // Automation Engine
-  useEffect(() => {
-    if (!automation.tempControl.enabled && !automation.humidityControl.enabled) return;
-
-    const interval = setInterval(() => {
-      if (!sensorData) return;
-
-      // Temperature Control
-      if (automation.tempControl.enabled) {
-        const { target, range } = automation.tempControl;
-        if (sensorData.temp > target + range && !devices.fan_exhaust.on) {
-          toggleDevice('fan_exhaust');
-          addLog(`Auto: Abluft AN (Temp ${sensorData.temp}°C)`);
-        } else if (sensorData.temp < target - range && devices.fan_exhaust.on) {
-          toggleDevice('fan_exhaust');
-          addLog(`Auto: Abluft AUS (Temp ${sensorData.temp}°C)`);
-        }
-      }
-
-      // Humidity Control
-      if (automation.humidityControl.enabled) {
-        const { target, range } = automation.humidityControl;
-        if (sensorData.humidity > target + range && !devices.dehumidifier.on) {
-          toggleDevice('dehumidifier');
-          addLog(`Auto: Entfeuchter AN (RLF ${sensorData.humidity}%)`);
-        } else if (sensorData.humidity < target - range && devices.dehumidifier.on) {
-          toggleDevice('dehumidifier');
-          addLog(`Auto: Entfeuchter AUS (RLF ${sensorData.humidity}%)`);
-        }
-      }
-    }, 30000); // Check every 30s
-
-    return () => clearInterval(interval);
-  }, [automation, sensorData, devices]);
-
   const addLog = (msg, type = 'info') => {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setLogs(prev => [{ time, msg, type }, ...prev].slice(0, 8));
   };
 
   const toggleDevice = (key) => {
-    if (safetyLocked && !activeScene) return;
-
-    setDevices(prev => ({
-      ...prev,
-      [key]: { ...prev[key], on: !prev[key].on }
-    }));
+    if (safetyLocked) {
+      toast.warning('Steuerung gesperrt! Entsperre zuerst.');
+      return;
+    }
 
     const newState = !devices[key].on;
-    api.toggleRelay(key, newState).catch(err => {
-      console.error(err);
-      addLog(`Fehler: ${getLabel(key)}`, 'error');
-    });
+    setDevices(prev => ({
+      ...prev,
+      [key]: { ...prev[key], on: newState }
+    }));
+
+    api.toggleRelay(key, newState)
+      .then(() => {
+        toast.device(getLabel(key), newState ? 'eingeschaltet' : 'ausgeschaltet', true);
+      })
+      .catch(err => {
+        console.error(err);
+        // Rollback on error
+        setDevices(prev => ({
+          ...prev,
+          [key]: { ...prev[key], on: !newState }
+        }));
+        toast.error(`${getLabel(key)} konnte nicht geschaltet werden`);
+        addLog(`Fehler: ${getLabel(key)}`, 'error');
+      });
     addLog(`${getLabel(key)} ${newState ? 'EIN' : 'AUS'}`);
   };
 
@@ -579,67 +520,60 @@ export default function Controls() {
     addLog(`Licht Helligkeit: ${level}%`);
   };
 
-  // PWM Handler
+  // PWM Handler mit localStorage Persistierung
   const handleFanPWMChange = async (value) => {
     setFanPWM(value);
+    localStorage.setItem('controls_fanPWM', value.toString());
     try {
       await controlsAPI.setFanPWM(value);
       addLog(`Fan PWM gesetzt: ${value}%`);
     } catch (err) {
       console.error('Fan PWM Fehler:', err);
-      showAlert('Fan PWM konnte nicht gesetzt werden', 'error');
+      toast.error('Fan PWM konnte nicht gesetzt werden');
     }
   };
 
   const handleLightPWMChange = async (value) => {
     setLightPWM(value);
+    localStorage.setItem('controls_lightPWM', value.toString());
     try {
       await controlsAPI.setLightPWM(value);
       addLog(`Light PWM gesetzt: ${value}%`);
     } catch (err) {
       console.error('Light PWM Fehler:', err);
-      showAlert('Light PWM konnte nicht gesetzt werden', 'error');
+      toast.error('Light PWM konnte nicht gesetzt werden');
     }
   };
 
   const handleLightRJ11Toggle = async () => {
     const newState = !lightRJ11Enabled;
     setLightRJ11Enabled(newState);
+    localStorage.setItem('controls_lightRJ11Enabled', newState.toString());
     try {
       await controlsAPI.setLightEnable(newState);
+      toast.device('RJ11 Light', newState ? 'aktiviert' : 'deaktiviert', true);
       addLog(`RJ11 Light ${newState ? 'aktiviert' : 'deaktiviert'}`);
     } catch (err) {
       console.error('RJ11 Enable Fehler:', err);
-      showAlert('RJ11 Light konnte nicht geschaltet werden', 'error');
+      setLightRJ11Enabled(!newState); // Rollback
+      toast.error('RJ11 Light konnte nicht geschaltet werden');
     }
   };
 
-  const activateScene = (scene) => {
-    setActiveScene(scene);
+  // Safety Lock Toggle mit Bestätigung
+  const handleSafetyToggle = () => {
+    if (safetyLocked) {
+      setShowUnlockConfirm(true);
+    } else {
+      setSafetyLocked(true);
+      toast.success('Steuerung gesichert', 'Safety Lock');
+    }
+  };
+
+  const confirmUnlock = () => {
     setSafetyLocked(false);
-
-    const scenes = {
-      veg: { light: true, fan_exhaust: true, fan_circulation: true, dimLevel: 80 },
-      bloom: { light: true, fan_exhaust: true, fan_circulation: false, dimLevel: 100 },
-      dry: { light: false, fan_exhaust: true, fan_circulation: false, heater: true },
-      maintenance: { light: true, fan_exhaust: true, dimLevel: 50 }
-    };
-
-    const config = scenes[scene];
-    if (!config) return;
-
-    Object.keys(devices).forEach(key => {
-      if (config[key] !== undefined) {
-        setDevices(prev => ({
-          ...prev,
-          [key]: { ...prev[key], on: config[key] }
-        }));
-      }
-    });
-
-    if (config.dimLevel) setDimLevel(config.dimLevel);
-    addLog(`Szene aktiviert: ${scene.toUpperCase()}`, 'info');
-    showAlert(`Szene "${scene}" wurde aktiviert`, 'success');
+    setShowUnlockConfirm(false);
+    toast.warning('Manuelle Kontrolle aktiv! Vorsicht beim Schalten.');
   };
 
   const emergencyStop = () => {
@@ -652,14 +586,9 @@ export default function Controls() {
         api.toggleRelay(key, false).catch(err => console.error(err));
       });
       setSafetyLocked(true);
-      setActiveScene(null);
       addLog("NOT-AUS AUSGELÖST!", 'error');
-      showAlert("NOT-AUS AUSGELÖST!", "error");
+      toast.error('NOT-AUS AUSGELÖST! Alle Geräte abgeschaltet.');
     }
-  };
-
-  const toggleSchedule = (id) => {
-    setSchedules(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
   };
 
   const getLabel = (key) => {
@@ -667,7 +596,7 @@ export default function Controls() {
       light: 'Hauptlicht',
       fan_exhaust: 'Abluft',
       fan_circulation: 'Umluft',
-      pump_main: 'Bewässerung',
+      pump_main: 'Luftbefeuchter',
       heater: 'Heizung',
       dehumidifier: 'Entfeuchter'
     };
@@ -679,11 +608,19 @@ export default function Controls() {
       light: devices.light.on ? (200 * devices.light.dimLevel / 100) : 0,
       fan_exhaust: devices.fan_exhaust.on ? 35 : 0,
       fan_circulation: devices.fan_circulation.on ? 15 : 0,
-      pump_main: devices.pump_main.on ? 50 : 0,
+      pump_main: devices.pump_main.on ? 50 : 0, // Luftbefeuchter
+      pump_mix: devices.pump_mix.on ? 45 : 0,
+      nutrient_pump: devices.nutrient_pump.on ? 30 : 0,
       heater: devices.heater.on ? 150 : 0,
       dehumidifier: devices.dehumidifier.on ? 250 : 0
     };
-    return Object.values(powerMap).reduce((a, b) => a + b, 0);
+
+    // Addiere PWM-Geräte (Fan PWM verbraucht proportional zur Geschwindigkeit)
+    const fanPWMPower = (fanPWM / 100) * 35; // Max 35W bei 100%
+    const lightPWMPower = lightRJ11Enabled ? (lightPWM / 100) * 150 : 0; // Max 150W bei 100%
+
+    const totalRelay = Object.values(powerMap).reduce((a, b) => a + b, 0);
+    return Math.round(totalRelay + fanPWMPower + lightPWMPower);
   };
 
   const totalWatts = calculateTotalPower();
@@ -765,62 +702,120 @@ export default function Controls() {
         </div>
       )}
 
-      {/* Scene Presets */}
-      <div className="p-6 rounded-2xl border shadow-xl" style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default }}>
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="font-bold flex items-center gap-2" style={{ color: theme.text.primary }}>
-            <Target size={20} style={{ color: theme.accent.color }} /> Szenen-Presets
-          </h3>
-          {activeScene && (
-            <button onClick={() => { setActiveScene(null); setSafetyLocked(true); }} className="text-xs px-3 py-1 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default, color: theme.text.secondary }}>
-              Szene beenden
-            </button>
-          )}
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <SceneCard icon={Leaf} title="Vegetativ" description="18h Licht, 80% Dim" isActive={activeScene === 'veg'} onClick={() => activateScene('veg')} theme={theme} color={getSafeColor('emerald', 500)} />
-          <SceneCard icon={Flame} title="Blüte" description="12h Licht, 100% Dim" isActive={activeScene === 'bloom'} onClick={() => activateScene('bloom')} theme={theme} color={getSafeColor('purple', 500)} />
-          <SceneCard icon={Wind} title="Trocknung" description="Nur Ventilation" isActive={activeScene === 'dry'} onClick={() => activateScene('dry')} theme={theme} color={getSafeColor('amber', 500)} />
-          <SceneCard icon={Wrench} title="Wartung" description="Arbeitslicht 50%" isActive={activeScene === 'maintenance'} onClick={() => activateScene('maintenance')} theme={theme} color={getSafeColor('blue', 500)} />
-        </div>
-      </div>
+      {/* Geräte Content */}
+      <>
+          {/* Safety Lock - Enhanced */}
+          <div
+            className={`relative overflow-hidden p-5 rounded-2xl border-2 transition-all duration-300 ${!safetyLocked ? 'animate-pulse-subtle' : ''}`}
+            style={{
+              backgroundColor: safetyLocked ? theme.bg.card : 'rgba(239, 68, 68, 0.15)',
+              borderColor: safetyLocked ? getSafeColor('emerald', 500) : getSafeColor('red', 500),
+              boxShadow: safetyLocked ? `0 0 20px ${getSafeColor('emerald', 500)}20` : `0 0 30px ${getSafeColor('red', 500)}30`
+            }}
+          >
+            {/* Background Glow */}
+            {!safetyLocked && (
+              <div
+                className="absolute inset-0 pointer-events-none"
+                style={{
+                  background: `radial-gradient(circle at center, ${getSafeColor('red', 500)}10 0%, transparent 70%)`
+                }}
+              />
+            )}
 
-      {/* Tabs: Geräte / Schedules */}
-      <div className="flex gap-2 border-b pb-2" style={{ borderColor: theme.border.default }}>
-        <button onClick={() => { setShowSchedules(false); }} className={`px-4 py-2 rounded-t-lg font-medium transition-all ${!showSchedules ? 'border-b-2' : ''}`} style={{ color: !showSchedules ? theme.accent.color : theme.text.muted, borderColor: theme.accent.color }}>
-          Geräte
-        </button>
-        <button onClick={() => { setShowSchedules(true); }} className={`px-4 py-2 rounded-t-lg font-medium transition-all ${showSchedules ? 'border-b-2' : ''}`} style={{ color: showSchedules ? theme.accent.color : theme.text.muted, borderColor: theme.accent.color }}>
-          Zeitpläne
-        </button>
-      </div>
+            <div className="relative flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div
+                  className={`p-3 rounded-xl transition-all duration-300 ${!safetyLocked ? 'animate-pulse' : ''}`}
+                  style={{
+                    backgroundColor: safetyLocked ? `${getSafeColor('emerald', 500)}20` : `${getSafeColor('red', 500)}20`,
+                    color: safetyLocked ? getSafeColor('emerald', 400) : getSafeColor('red', 400)
+                  }}
+                >
+                  {safetyLocked ? <Lock size={28} /> : <Unlock size={28} />}
+                </div>
+                <div>
+                  <h3 className="font-bold text-lg" style={{ color: theme.text.primary }}>
+                    {safetyLocked ? 'Steuerung Gesichert' : '⚠️ Manuelle Kontrolle Aktiv'}
+                  </h3>
+                  <p className="text-sm" style={{ color: safetyLocked ? theme.text.muted : getSafeColor('red', 300) }}>
+                    {safetyLocked
+                      ? 'Automation aktiv - Entsperren für manuelle Steuerung'
+                      : 'Direkte Gerätesteuerung möglich - Automation überschrieben'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleSafetyToggle}
+                className="px-6 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all hover:scale-105"
+                style={{
+                  backgroundColor: safetyLocked ? theme.bg.hover : getSafeColor('emerald', 600),
+                  borderWidth: '2px',
+                  borderColor: safetyLocked ? getSafeColor('amber', 500) : 'transparent',
+                  color: safetyLocked ? getSafeColor('amber', 400) : '#ffffff',
+                  boxShadow: safetyLocked ? 'none' : `0 4px 15px ${getSafeColor('emerald', 500)}40`
+                }}
+              >
+                {safetyLocked ? '🔓 Entsperren' : '🔒 Sperren'}
+              </button>
+            </div>
+          </div>
 
-      {/* Content based on active tab */}
-      {!showSchedules && (
-        <>
-          {/* Safety Lock */}
-          <div className="flex items-center justify-between p-4 rounded-xl border" style={{ backgroundColor: safetyLocked ? theme.bg.card : 'rgba(239, 68, 68, 0.1)', borderColor: safetyLocked ? theme.border.default : 'rgba(239, 68, 68, 0.3)' }}>
-            <div className="flex items-center gap-3">
-              {safetyLocked ? <Lock size={24} style={{ color: getSafeColor('emerald', 400) }} /> : <Unlock size={24} className="animate-pulse" style={{ color: getSafeColor('red', 400) }} />}
-              <div>
-                <h3 className="font-bold" style={{ color: theme.text.primary }}>{safetyLocked ? 'Steuerung Gesichert' : 'Manuelle Kontrolle Aktiv'}</h3>
-                <p className="text-xs" style={{ color: theme.text.muted }}>
-                  {safetyLocked ? 'Entsperren um Geräte manuell zu steuern' : 'Vorsicht! Direkte Gerätesteuerung möglich'}
-                </p>
+          {/* Unlock Confirmation Modal */}
+          {showUnlockConfirm && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+              <div
+                className="w-full max-w-md p-6 rounded-2xl border-2 shadow-2xl animate-in zoom-in-95 duration-200"
+                style={{
+                  backgroundColor: theme.bg.card,
+                  borderColor: getSafeColor('amber', 500)
+                }}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 rounded-xl" style={{ backgroundColor: `${getSafeColor('amber', 500)}20` }}>
+                    <AlertTriangle size={28} style={{ color: getSafeColor('amber', 400) }} />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg" style={{ color: theme.text.primary }}>Sicherheitssperre aufheben?</h3>
+                    <p className="text-sm" style={{ color: theme.text.muted }}>Manuelle Steuerung aktivieren</p>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl mb-4" style={{ backgroundColor: `${getSafeColor('amber', 500)}10`, borderLeft: `4px solid ${getSafeColor('amber', 500)}` }}>
+                  <p className="text-sm" style={{ color: getSafeColor('amber', 300) }}>
+                    <strong>Achtung:</strong> Bei aktivierter manueller Steuerung können Automation-Rules überschrieben werden.
+                    Stelle sicher, dass du weißt was du tust!
+                  </p>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setShowUnlockConfirm(false)}
+                    className="flex-1 px-4 py-3 rounded-xl font-bold transition-colors"
+                    style={{
+                      backgroundColor: theme.bg.hover,
+                      color: theme.text.secondary,
+                      borderWidth: '1px',
+                      borderColor: theme.border.default
+                    }}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    onClick={confirmUnlock}
+                    className="flex-1 px-4 py-3 rounded-xl font-bold transition-all hover:scale-105"
+                    style={{
+                      backgroundColor: getSafeColor('amber', 600),
+                      color: '#ffffff',
+                      boxShadow: `0 4px 15px ${getSafeColor('amber', 500)}40`
+                    }}
+                  >
+                    Ja, entsperren
+                  </button>
+                </div>
               </div>
             </div>
-            <button
-              onClick={() => setSafetyLocked(!safetyLocked)}
-              className="px-4 py-2 rounded-lg text-sm font-bold border transition-colors"
-              style={{
-                backgroundColor: safetyLocked ? theme.bg.hover : getSafeColor('red', 600),
-                borderColor: safetyLocked ? theme.border.default : 'transparent',
-                color: safetyLocked ? theme.text.secondary : '#ffffff'
-              }}
-            >
-              {safetyLocked ? 'Entsperren' : 'Sperren'}
-            </button>
-          </div>
+          )}
 
           {/* Device Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
@@ -877,8 +872,8 @@ export default function Controls() {
             />
             <DeviceCard
               id="pump_main"
-              label="Bewässerung"
-              subLabel="Drip Irrigation System"
+              label="Luftbefeuchter"
+              subLabel="Ultrasonic Humidifier"
               icon={Droplets}
               iconColor={getSafeColor('emerald', 400)}
               iconBg="rgba(16, 185, 129, 0.1)"
@@ -893,8 +888,8 @@ export default function Controls() {
             />
             <DeviceCard
               id="pump_mix"
-              label="Mischpumpe"
-              subLabel="Nutrient Mixing Pump"
+              label="Pumpe Tank Luftbefeuchter"
+              subLabel="Humidifier Tank Pump"
               icon={Droplets}
               iconColor={getSafeColor('teal', 400)}
               iconBg="rgba(20, 184, 166, 0.1)"
@@ -985,33 +980,7 @@ export default function Controls() {
               />
             </div>
           </div>
-        </>
-      )}
-
-      {showSchedules && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="font-bold flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <Calendar size={20} style={{ color: theme.accent.color }} /> Zeitgesteuerte Aktionen
-            </h3>
-            <button className="px-4 py-2 rounded-lg border flex items-center gap-2 text-sm font-medium" style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default, color: theme.text.primary }}>
-              <Plus size={16} /> Neuer Zeitplan
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {schedules.map(schedule => (
-              <ScheduleEntry
-                key={schedule.id}
-                time={schedule.time}
-                action={schedule.action}
-                enabled={schedule.enabled}
-                onToggle={() => toggleSchedule(schedule.id)}
-                theme={theme}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      </>
 
       {/* Bottom Section: Power Graph & Logs & Emergency */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -1026,6 +995,19 @@ export default function Controls() {
             </div>
           </div>
           <PowerChart data={powerHistory} theme={theme} />
+
+          {/* Aktive Geräte Übersicht */}
+          <div className="mt-4 pt-4 border-t flex flex-wrap gap-2" style={{ borderColor: theme.border.default }}>
+            {Object.entries(devices).filter(([_, dev]) => dev.on).map(([key, dev]) => (
+              <div key={key} className="text-xs px-2 py-1 rounded-lg flex items-center gap-1" style={{ backgroundColor: theme.bg.hover, color: theme.text.secondary }}>
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                {getLabel(key)}
+              </div>
+            ))}
+            {Object.entries(devices).filter(([_, dev]) => dev.on).length === 0 && (
+              <span className="text-xs" style={{ color: theme.text.muted }}>Keine Geräte aktiv</span>
+            )}
+          </div>
         </div>
 
         {/* Activity Log */}
@@ -1042,17 +1024,34 @@ export default function Controls() {
         </div>
       </div>
 
-      {/* GPIO Pin Reference */}
-      <div className="p-6 rounded-2xl border shadow-xl" style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default }}>
-        <div className="flex items-center gap-3 mb-4">
-          <Cpu size={24} style={{ color: theme.accent.color }} />
-          <div>
-            <h3 className="font-bold text-lg" style={{ color: theme.text.primary }}>ESP32 GPIO Pin-Belegung</h3>
-            <p className="text-xs" style={{ color: theme.text.muted }}>Vollständige Übersicht aller verwendeten Pins</p>
+      {/* GPIO Pin Reference - Collapsible */}
+      <div className="rounded-2xl border shadow-xl overflow-hidden" style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default }}>
+        <button
+          onClick={() => setGpioExpanded(!gpioExpanded)}
+          className="w-full p-6 flex items-center justify-between hover:bg-white/5 transition-colors"
+        >
+          <div className="flex items-center gap-3">
+            <Cpu size={24} style={{ color: theme.accent.color }} />
+            <div className="text-left">
+              <h3 className="font-bold text-lg" style={{ color: theme.text.primary }}>ESP32 GPIO Pin-Belegung</h3>
+              <p className="text-xs" style={{ color: theme.text.muted }}>Vollständige Übersicht aller verwendeten Pins</p>
+            </div>
           </div>
-        </div>
+          <div
+            className="p-2 rounded-lg transition-transform duration-300"
+            style={{
+              backgroundColor: theme.bg.hover,
+              transform: gpioExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
+            }}
+          >
+            <ChevronDown size={20} style={{ color: theme.text.muted }} />
+          </div>
+        </button>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div
+          className={`transition-all duration-300 ease-in-out overflow-hidden ${gpioExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
+        >
+          <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Relais Outputs */}
           <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
             <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
@@ -1108,7 +1107,7 @@ export default function Controls() {
               <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
                 <span>GPIO 16</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Pumpe 1</span>
+                  <span className="text-xs" style={{ color: theme.text.muted }}>Luftbefeuchter</span>
                   <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.pump_main.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
                     {devices.pump_main.on ? 'HIGH' : 'LOW'}
                   </span>
@@ -1117,7 +1116,7 @@ export default function Controls() {
               <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
                 <span>GPIO 17</span>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Mischpumpe</span>
+                  <span className="text-xs" style={{ color: theme.text.muted }}>Pumpe Tank LB</span>
                   <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.pump_mix.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
                     {devices.pump_mix.on ? 'HIGH' : 'LOW'}
                   </span>
@@ -1318,6 +1317,7 @@ export default function Controls() {
               <div>GPIO 3: UART RX</div>
               <div>GPIO 6-11: Flash</div>
             </div>
+          </div>
           </div>
         </div>
       </div>

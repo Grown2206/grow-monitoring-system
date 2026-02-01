@@ -28,7 +28,27 @@
       "Bash(move:*)",
       "Bash(mkdir:*)",
       "Bash(test:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(ssh root@192.168.2.169 \"cd /DATA/AppData/grow-system && git pull origin main\":*)",
+      "Bash(ssh:*)",
+      "Bash(timeout 20 ssh:*)",
+      "Bash(timeout:*)",
+      "Bash(docker compose restart:*)",
+      "Bash(npm install:*)",
+      "Bash(npm run lint:*)",
+      "Bash(npx vite build)",
+      "WebFetch(domain:www.amazon.de)",
+      "WebFetch(domain:biobizz.com)",
+      "WebFetch(domain:pevgrow.com)",
+      "WebFetch(domain:2fast4buds.com)",
+      "WebFetch(domain:www.growell.co.uk)",
+      "WebFetch(domain:greenbookpages.com)",
+      "WebFetch(domain:www.alchimiaweb.com)",
+      "WebFetch(domain:www.420magazine.com)"
     ]
   }
 }

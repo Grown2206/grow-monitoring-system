@@ -60,9 +60,9 @@ export default function Settings() {
       onClick={() => setActiveTab(id)}
       className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors font-medium whitespace-nowrap`}
       style={{
-        borderColor: activeTab === id ? currentTheme.colors.primary : 'transparent',
-        color: activeTab === id ? currentTheme.colors.primary : currentTheme.text.secondary,
-        backgroundColor: activeTab === id ? currentTheme.bg.secondary : 'transparent'
+        borderColor: activeTab === id ? currentTheme.accent.color : 'transparent',
+        color: activeTab === id ? currentTheme.accent.color : currentTheme.text.secondary,
+        backgroundColor: activeTab === id ? currentTheme.bg.card : 'transparent'
       }}
     >
       {icon}

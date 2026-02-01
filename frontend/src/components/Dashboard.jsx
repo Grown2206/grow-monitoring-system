@@ -3,8 +3,13 @@ import StatCard from './Dashboard/StatCard';
 import LiveChart from './Dashboard/LiveChart';
 import CameraFeed from './Dashboard/CameraFeed';
 import WeatherWidget from './Dashboard/WeatherWidget';
+import QuickActionsBar from './Dashboard/QuickActionsBar';
+import WidgetSystem from './Dashboard/WidgetSystem';
+import SmartSuggestionsEngine from './SmartSuggestions/SmartSuggestionsEngine';
 import HarvestCountdown from './HarvestCountdown';
+import { Skeleton } from './ui';
 import { useSocket } from '../context/SocketContext';
+import { useSensorAverages } from '../hooks/useSensorAverages';
 import { api } from '../utils/api';
 import { useTheme, themes, colors } from '../theme';
 import {
@@ -22,19 +27,22 @@ const Logo = ({ color }) => (
 );
 
 export default function Dashboard({ changeTab }) {
-  const { sensorData, isConnected } = useSocket();
+  const { isConnected } = useSocket();
+  const { temp: avgTemp, humidity: avgHumidity, sensorData } = useSensorAverages();
   const { currentTheme, themeId, setTheme } = useTheme();
   const [nextEvent, setNextEvent] = useState(null);
   const [activeAlerts, setActiveAlerts] = useState([]);
   const [averages, setAverages] = useState({ temp: null, humidity: null, lux: null, vpd: null });
   const [isThemeMenuOpen, setIsThemeMenuOpen] = useState(false);
   const [plants, setPlants] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadDashboardData();
   }, []);
 
   const loadDashboardData = async () => {
+    setIsLoading(true);
     try {
       const [events, history, plantsData] = await Promise.all([
         api.getEvents(),
@@ -55,11 +63,7 @@ export default function Dashboard({ changeTab }) {
 
       const alerts = [];
       if (sensorData?.tankLevel < 1000) alerts.push({ type: 'warning', msg: 'Wassertank niedrig' });
-
-      // FIX: Auch hier Nullen filtern
-      const temps = [sensorData?.temp_bottom, sensorData?.temp_middle, sensorData?.temp_top].filter(t => t != null && t > 0);
-      const avgTemp = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : null;
-
+      // Temperatur-Alerts werden jetzt über useSensorAverages abgedeckt
       if (avgTemp && avgTemp > 28) alerts.push({ type: 'error', msg: 'Temperatur kritisch' });
       setActiveAlerts(alerts);
 
@@ -67,7 +71,7 @@ export default function Dashboard({ changeTab }) {
         const now = Date.now();
         const hours4 = 4 * 60 * 60 * 1000;
         const recentData = history.filter(d => new Date(d.timestamp).getTime() > (now - hours4));
-        
+
         if (recentData.length > 0) {
           const sums = recentData.reduce((acc, curr) => {
             const r = curr.readings || {};
@@ -94,33 +98,14 @@ export default function Dashboard({ changeTab }) {
         }
       }
 
-    } catch (e) { 
-      console.error("Dashboard Ladefehler:", e); 
+    } catch (e) {
+      console.error("Dashboard Ladefehler:", e);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // =================================================================================
-  // FIX: KORREKTE BERECHNUNG DER DURCHSCHNITTSWERTE
-  // =================================================================================
-  
-  // 1. Priorität: Nimm den fertigen Wert vom ESP32 (sensorData.temp)
-  // 2. Fallback: Berechne selbst, aber filtere 0.0 (fehlende Sensoren) heraus!
-  
-  const rawTemps = [sensorData?.temp_bottom, sensorData?.temp_middle, sensorData?.temp_top];
-  const validTemps = rawTemps.filter(t => t != null && t > 0); // WICHTIG: t > 0
-  
-  const rawHums = [sensorData?.humidity_bottom, sensorData?.humidity_middle, sensorData?.humidity_top];
-  const validHums = rawHums.filter(h => h != null && h > 0);   // WICHTIG: h > 0
-
-  // Nutze den Wert vom ESP32, falls vorhanden und > 0, sonst berechne neu
-  const avgTemp = (sensorData?.temp && sensorData.temp > 0) 
-    ? sensorData.temp 
-    : (validTemps.length > 0 ? validTemps.reduce((a, b) => a + b, 0) / validTemps.length : null);
-
-  const avgHumidity = (sensorData?.humidity && sensorData.humidity > 0)
-    ? sensorData.humidity
-    : (validHums.length > 0 ? validHums.reduce((a, b) => a + b, 0) / validHums.length : null);
-
+  // Nutze den zentralen Hook für Sensor-Durchschnittswerte
   const isTempOk = avgTemp > 18 && avgTemp < 28;
   const isHumOk = avgHumidity > 40 && avgHumidity < 70;
   const healthScore = (isConnected ? 50 : 0) + (isTempOk ? 25 : 0) + (isHumOk ? 25 : 0);
@@ -318,60 +303,42 @@ export default function Dashboard({ changeTab }) {
         </div>
       </div>
 
-      {/* Stats Grid - Improved for better visibility */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-        <StatCard
-          title="Temperatur"
-          value={avgTemp?.toFixed(1) || '--'}
-          unit="°C"
-          icon={<Thermometer size={24} />}
-          iconColor={colors.amber[400]}
-          iconBg={`rgba(251, 191, 36, 0.1)`}
-          iconBorder={`rgba(251, 191, 36, 0.2)`}
-          trend={+0.2}
-          avg={averages.temp}
+      {/* Customizable Widget System */}
+      {!isLoading && isConnected && (
+        <WidgetSystem
           theme={currentTheme}
+          sensorData={{
+            temp: avgTemp,
+            humidity: avgHumidity,
+            lux: sensorData?.lux
+          }}
         />
-        <StatCard
-          title="Luftfeuchte"
-          value={avgHumidity?.toFixed(1) || '--'}
-          unit="%"
-          icon={<Droplets size={24} />}
-          iconColor={colors.blue[400]}
-          iconBg={`rgba(96, 165, 250, 0.1)`}
-          iconBorder={`rgba(96, 165, 250, 0.2)`}
-          trend={-1.5}
-          avg={averages.humidity}
-          theme={currentTheme}
-        />
-        <StatCard
-          title="Licht"
-          value={sensorData?.lux?.toFixed(0) || '--'}
-          unit="lx"
-          icon={<Sun size={24} />}
-          iconColor={colors.yellow[400]}
-          iconBg={`rgba(250, 204, 21, 0.1)`}
-          iconBorder={`rgba(250, 204, 21, 0.2)`}
-          avg={averages.lux}
-          theme={currentTheme}
-        />
-        <StatCard
-          title="VPD"
-          value="1.12"
-          unit="kPa"
-          icon={<Wind size={24} />}
-          iconColor={currentTheme.accent.light}
-          iconBg={`rgba(${currentTheme.accent.rgb}, 0.1)`}
-          iconBorder={`rgba(${currentTheme.accent.rgb}, 0.2)`}
-          avg={averages.vpd}
-          theme={currentTheme}
-        />
-      </div>
+      )}
+
+      {/* Stats Grid Skeleton while loading */}
+      {(isLoading || !isConnected) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+          <Skeleton.StatCard theme={currentTheme} />
+          <Skeleton.StatCard theme={currentTheme} />
+          <Skeleton.StatCard theme={currentTheme} />
+          <Skeleton.StatCard theme={currentTheme} />
+        </div>
+      )}
+
+      {/* Quick Actions Bar */}
+      <QuickActionsBar
+        theme={currentTheme}
+        changeTab={changeTab}
+        onRefresh={loadDashboardData}
+      />
 
       {/* Harvest Countdown - Show for first active plant */}
       {plants && plants.length > 0 && plants[0].growStartDate && (
         <HarvestCountdown plant={plants[0]} />
       )}
+
+      {/* Smart Suggestions */}
+      <SmartSuggestionsEngine compact />
 
       {/* Middle Section: Chart & Weather - Improved responsive layout */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">

@@ -3,9 +3,8 @@ const router = express.Router();
 const sensorController = require('../controllers/sensorController');
 const { authenticate, optionalAuth } = require('../middleware/auth');
 
-// Optional: Authentifizierung aktivieren wenn gewünscht
-// Aktuell ohne Auth für einfacheren Start
-const auth = (req, res, next) => next();  // Bypass für Development
+// Authentifizierung für Sensor-Kalibrierung
+const auth = optionalAuth;  // optionalAuth erlaubt Zugriff auch ohne Token, loggt aber User
 
 // ==========================================
 // CURRENT READINGS & HISTORY
@@ -52,6 +51,14 @@ router.post('/calibration/:type/save', auth, sensorController.saveCalibration);
  * Reset Calibration
  */
 router.post('/calibration/:type/reset', auth, sensorController.resetCalibration);
+
+// ==========================================
+// VL53L0X ToF CALIBRATION
+// ==========================================
+
+router.get('/tof/config', auth, sensorController.getTofConfig);
+router.post('/tof/config', auth, sensorController.saveTofConfig);
+router.post('/tof/test/:slot', auth, sensorController.testTofSensor);
 
 // ==========================================
 // SENSOR COMMANDS
