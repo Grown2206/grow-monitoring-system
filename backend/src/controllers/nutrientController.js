@@ -545,4 +545,157 @@ exports.calibrateSensor = async (req, res, next) => {
   }
 };
 
+// ==========================================
+// BIOBIZZ DOSIERUNG
+// ==========================================
+
+/**
+ * POST /api/nutrients/dose-biobizz
+ * BioBizz-spezifische Dosierung loggen
+ */
+exports.doseWithBioBizz = async (req, res, next) => {
+  try {
+    const { waterVolumeLiters, week, products, substrate, notes, triggerPump } = req.body;
+
+    if (!waterVolumeLiters || !products?.length) {
+      return res.status(400).json({
+        success: false,
+        message: 'waterVolumeLiters und products[] sind erforderlich'
+      });
+    }
+
+    // Berechne Gesamtvolumen
+    let totalML = 0;
+    const productEntries = products.map(p => {
+      const ml = (p.mlPerLiter || 0) * waterVolumeLiters;
+      totalML += ml;
+      return {
+        name: p.name || p.productId,
+        pumpId: 1,
+        ml_dosed: Math.round(ml * 10) / 10,
+        biobizzProductId: p.productId
+      };
+    });
+
+    // Sicherheits-Check
+    if (totalML > 1000) {
+      return res.status(400).json({
+        success: false,
+        message: `Gesamt-Dosierung von ${totalML.toFixed(1)}ml erscheint unrealistisch hoch`
+      });
+    }
+
+    // Reservoir-Check (optional, nur wenn Pumpe getriggert werden soll)
+    let reservoirState = null;
+    if (triggerPump) {
+      reservoirState = await ReservoirState.getOrCreate();
+      const canDose = reservoirState.canDose(1, totalML);
+      if (!canDose.ok) {
+        return res.status(400).json({ success: false, message: canDose.reason });
+      }
+    }
+
+    // Messungen VOR Dosierung
+    if (!reservoirState) {
+      reservoirState = await ReservoirState.getOrCreate();
+    }
+
+    const measurementsBefore = {
+      ec: reservoirState.main.ec,
+      ph: reservoirState.main.ph,
+      temp: reservoirState.main.temp,
+      timestamp: new Date()
+    };
+
+    // DosageLog erstellen
+    const dosageLog = new DosageLog({
+      dosage: {
+        multiPump: productEntries,
+        totalVolume_ml: Math.round(totalML * 10) / 10
+      },
+      waterVolume_liters: waterVolumeLiters,
+      concentration_ml_per_liter: Math.round((totalML / waterVolumeLiters) * 10) / 10,
+      measurements: {
+        before: measurementsBefore
+      },
+      status: triggerPump ? 'pending' : 'success',
+      triggeredBy: {
+        type: 'manual',
+        userId: req.user?._id
+      },
+      notes: `BioBizz Woche ${week || '?'} | ${substrate || 'lightMix'} | ${notes || ''}`
+    });
+
+    await dosageLog.save();
+
+    // Optional: MQTT an Pumpe senden
+    if (triggerPump && mqttClient?.connected) {
+      const pumpCommand = {
+        action: 'dose',
+        dosage: [{
+          pumpId: 1,
+          volume_ml: Math.round(totalML),
+          flowRate_ml_per_min: 100
+        }],
+        measureAfter: true,
+        mixAfter_seconds: 120
+      };
+
+      mqttClient.publish(
+        'grow/esp32/nutrients/command',
+        JSON.stringify(pumpCommand),
+        { qos: 1 }
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      data: dosageLog,
+      message: `BioBizz-Dosierung geloggt: ${Math.round(totalML)}ml gesamt fur ${waterVolumeLiters}L Wasser`
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/nutrients/biobizz/history
+ * BioBizz Dosierungs-Historie
+ */
+exports.getBioBizzHistory = async (req, res, next) => {
+  try {
+    const { days = 30, limit = 50 } = req.query;
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - parseInt(days));
+
+    const logs = await DosageLog.find({
+      createdAt: { $gte: startDate },
+      notes: { $regex: /BioBizz/i }
+    })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit));
+
+    // Auch allgemeine Logs holen fur EC/pH-Verlauf
+    const allLogs = await DosageLog.find({
+      createdAt: { $gte: startDate }
+    })
+      .sort({ createdAt: -1 })
+      .limit(parseInt(limit) * 2);
+
+    res.json({
+      success: true,
+      data: {
+        biobizzLogs: logs,
+        allLogs: allLogs,
+        period: { from: startDate, to: new Date(), days: parseInt(days) }
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = exports;

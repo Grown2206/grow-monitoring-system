@@ -168,20 +168,6 @@ export const dataAPI = {
   getLogs: () => api.get('/logs')
 };
 
-export const recipesAPI = {
-  getAll: () => api.get('/recipes'),
-  getById: (id) => api.get(`/recipes/${id}`),
-  create: (recipe) => api.post('/recipes', recipe),
-  update: (id, recipe) => api.put(`/recipes/${id}`, recipe),
-  delete: (id) => api.delete(`/recipes/${id}`),
-  use: (id) => api.post(`/recipes/${id}/use`),
-  like: (id) => api.post(`/recipes/${id}/like`),
-  clone: (id) => api.post(`/recipes/${id}/clone`),
-  export: (id) => api.get(`/recipes/${id}/export`),
-  import: (recipeData) => api.post('/recipes/import', recipeData),
-  toggleFavorite: (id) => api.post(`/recipes/${id}/favorite`)
-};
-
 export const weatherAPI = {
   getCurrent: () => api.get('/weather/current'),
   getForecast: () => api.get('/weather/forecast'),
@@ -248,7 +234,12 @@ export const notificationsAPI = {
 export const calendarAPI = {
   getEvents: () => api.get('/calendar'),
   createEvent: (event) => api.post('/calendar', event),
-  deleteEvent: (id) => api.delete(`/calendar/${id}`)
+  deleteEvent: (id) => api.delete(`/calendar/${id}`),
+  getDailySummary: (date) => api.get(`/calendar/daily-summary/${date}`),
+  getMonthSummary: (year, month) => api.get(`/calendar/month-summary/${year}/${month}`),
+  getDayDetail: (date) => api.get(`/calendar/day-detail/${date}`),
+  getWeekComparison: (year, week) => api.get(`/calendar/week-comparison/${year}/${week}`),
+  getMonthTrends: (year, month) => api.get(`/calendar/trends/${year}/${month}`)
 };
 
 export const aiAPI = {
@@ -288,7 +279,14 @@ export const nutrientsAPI = {
 
   // Kalibrierung
   calibrateSensor: (sensor, referenceValue, measuredValue) =>
-    api.post('/nutrients/calibrate', { sensor, referenceValue, measuredValue })
+    api.post('/nutrients/calibrate', { sensor, referenceValue, measuredValue }),
+
+  // BioBizz
+  doseWithBioBizz: (data) => api.post('/nutrients/dose-biobizz', data),
+  getBioBizzHistory: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return api.get(`/nutrients/biobizz/history${query ? `?${query}` : ''}`);
+  }
 };
 
 export const plantGrowthAPI = {
@@ -308,5 +306,12 @@ export const plantGrowthAPI = {
 
   // Photos & Activities
   addPhoto: (logId, url, caption) => api.post(`/growth-log/${logId}/photo`, { url, caption }),
-  addActivity: (logId, type, description) => api.post(`/growth-log/${logId}/activity`, { type, description })
+  addActivity: (logId, type, description) => api.post(`/growth-log/${logId}/activity`, { type, description }),
+
+  // Heights (VL53L0X Live-Daten)
+  getHeights: () => api.get('/plants/heights'),
+
+  // AI Analysis (Gemini Vision)
+  triggerAnalysis: () => api.post('/plants/analysis/trigger'),
+  getAnalysisStatus: () => api.get('/plants/analysis/status')
 };

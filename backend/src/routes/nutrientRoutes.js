@@ -67,4 +67,14 @@ router.get('/stats', auth, nutrientController.getStats);
 // POST /api/nutrients/calibrate - Sensor kalibrieren
 router.post('/calibrate', auth, nutrientController.calibrateSensor);
 
+// ==========================================
+// BIOBIZZ
+// ==========================================
+
+// POST /api/nutrients/dose-biobizz - BioBizz Dosierung loggen
+router.post('/dose-biobizz', auth, nutrientController.doseWithBioBizz);
+
+// GET /api/nutrients/biobizz/history - BioBizz Historie
+router.get('/biobizz/history', auth, nutrientController.getBioBizzHistory);
+
 module.exports = router;
