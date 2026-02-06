@@ -420,8 +420,27 @@ const ChartTypeSelector = ({ value, onChange, theme }) => {
   );
 };
 
+// Smart time formatter based on selected time range
+const getTimeFormatter = (timeRange) => (ts) => {
+  const date = new Date(ts);
+  if (timeRange <= 1) {
+    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  } else if (timeRange <= 12) {
+    return date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+      + '\n' + date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' });
+  } else if (timeRange <= 24) {
+    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+      + ' ' + date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  } else {
+    return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
+      + ' ' + date.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+};
+
 // Flexible Climate Chart Component
 const FlexibleClimateChart = ({ data, chartType, visibility, theme, timeRange }) => {
+  const timeFormatter = getTimeFormatter(timeRange);
+
   const renderChart = () => {
     const commonProps = {
       data,
@@ -433,10 +452,10 @@ const FlexibleClimateChart = ({ data, chartType, visibility, theme, timeRange })
       stroke: theme.text.muted,
       fontSize: 11,
       tickMargin: 10,
-      minTickGap: 50,
+      minTickGap: timeRange > 24 ? 80 : 60,
       domain: ['dataMin', 'dataMax'],
       type: "number",
-      tickFormatter: (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      tickFormatter: timeFormatter
     };
 
     const tooltipContent = <CustomTooltip />;
@@ -459,34 +478,42 @@ const FlexibleClimateChart = ({ data, chartType, visibility, theme, timeRange })
             {visibility.vpd && (
               <Line yAxisId="left" type="monotone" dataKey="vpd" name="VPD (kPa)" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="5 5" connectNulls={false} />
             )}
-            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} />
+            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={timeFormatter} />
           </LineChart>
         );
 
       case 'bar':
-        // Aggregate data for bar chart (group by hour)
+        // Aggregate data into time buckets based on timeRange
+        const bucketSize = timeRange <= 1 ? 5 * 60 * 1000 : // 5 min buckets for 1h
+                           timeRange <= 12 ? 30 * 60 * 1000 : // 30 min buckets for 6-12h
+                           timeRange <= 24 ? 60 * 60 * 1000 : // 1h buckets for 24h
+                           timeRange <= 72 ? 3 * 60 * 60 * 1000 : // 3h buckets for 3d
+                           6 * 60 * 60 * 1000; // 6h buckets for 7d
+
         const aggregatedData = data.reduce((acc, item) => {
-          const hour = new Date(item.timestamp).getHours();
-          if (!acc[hour]) {
-            acc[hour] = { hour: `${hour}:00`, temps: [], humidities: [], vpds: [] };
+          const bucket = Math.floor(item.timestamp / bucketSize) * bucketSize;
+          if (!acc[bucket]) {
+            acc[bucket] = { timestamp: bucket, temps: [], humidities: [], vpds: [] };
           }
-          if (item.temp) acc[hour].temps.push(item.temp);
-          if (item.humidity) acc[hour].humidities.push(item.humidity);
-          if (item.vpd) acc[hour].vpds.push(item.vpd);
+          if (item.temp) acc[bucket].temps.push(item.temp);
+          if (item.humidity) acc[bucket].humidities.push(item.humidity);
+          if (item.vpd) acc[bucket].vpds.push(item.vpd);
           return acc;
         }, {});
 
-        const barData = Object.values(aggregatedData).map(item => ({
-          hour: item.hour,
-          temp: item.temps.length ? item.temps.reduce((a, b) => a + b, 0) / item.temps.length : 0,
-          humidity: item.humidities.length ? item.humidities.reduce((a, b) => a + b, 0) / item.humidities.length : 0,
-          vpd: item.vpds.length ? item.vpds.reduce((a, b) => a + b, 0) / item.vpds.length : 0
-        }));
+        const barData = Object.values(aggregatedData)
+          .map(item => ({
+            timestamp: item.timestamp,
+            temp: item.temps.length ? item.temps.reduce((a, b) => a + b, 0) / item.temps.length : 0,
+            humidity: item.humidities.length ? item.humidities.reduce((a, b) => a + b, 0) / item.humidities.length : 0,
+            vpd: item.vpds.length ? item.vpds.reduce((a, b) => a + b, 0) / item.vpds.length : 0
+          }))
+          .sort((a, b) => a.timestamp - b.timestamp);
 
         return (
           <BarChart data={barData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={`${theme.border.default}50`} vertical={false} />
-            <XAxis dataKey="hour" stroke={theme.text.muted} fontSize={11} />
+            <XAxis dataKey="timestamp" stroke={theme.text.muted} fontSize={11} tickMargin={10} minTickGap={timeRange > 24 ? 80 : 60} type="number" domain={['dataMin', 'dataMax']} tickFormatter={timeFormatter} />
             <YAxis yAxisId="left" stroke={theme.text.muted} fontSize={11} />
             <YAxis yAxisId="right" orientation="right" stroke={theme.text.muted} fontSize={11} domain={[0, 100]} />
             <Tooltip content={tooltipContent} />
@@ -537,7 +564,7 @@ const FlexibleClimateChart = ({ data, chartType, visibility, theme, timeRange })
             {visibility.vpd && (
               <Line yAxisId="left" type="monotone" dataKey="vpd" name="VPD (kPa)" stroke="#10b981" strokeWidth={2} dot={false} strokeDasharray="5 5" connectNulls={false} />
             )}
-            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} />
+            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={timeFormatter} />
           </ComposedChart>
         );
     }
@@ -551,17 +578,19 @@ const FlexibleClimateChart = ({ data, chartType, visibility, theme, timeRange })
 };
 
 // Flexible Lux Chart
-const FlexibleLuxChart = ({ data, chartType, theme }) => {
+const FlexibleLuxChart = ({ data, chartType, theme, timeRange }) => {
+  const timeFormatter = getTimeFormatter(timeRange);
+
   const renderChart = () => {
     const xAxisProps = {
       dataKey: "timestamp",
       stroke: theme.text.muted,
       fontSize: 11,
       tickMargin: 10,
-      minTickGap: 50,
+      minTickGap: timeRange > 24 ? 80 : 60,
       domain: ['dataMin', 'dataMax'],
       type: "number",
-      tickFormatter: (ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      tickFormatter: timeFormatter
     };
 
     switch (chartType) {
@@ -573,27 +602,35 @@ const FlexibleLuxChart = ({ data, chartType, theme }) => {
             <YAxis stroke={theme.text.muted} fontSize={11} domain={['auto', 'auto']} />
             <Tooltip content={<CustomTooltip />} />
             <Line type="monotone" dataKey="lux" name="Licht (lx)" stroke="#eab308" strokeWidth={2} dot={false} connectNulls={false} />
-            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} />
+            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={timeFormatter} />
           </LineChart>
         );
 
       case 'bar':
+        const luxBucketSize = timeRange <= 1 ? 5 * 60 * 1000 :
+                              timeRange <= 12 ? 30 * 60 * 1000 :
+                              timeRange <= 24 ? 60 * 60 * 1000 :
+                              timeRange <= 72 ? 3 * 60 * 60 * 1000 :
+                              6 * 60 * 60 * 1000;
+
         const aggregatedData = data.reduce((acc, item) => {
-          const hour = new Date(item.timestamp).getHours();
-          if (!acc[hour]) acc[hour] = { hour: `${hour}:00`, values: [] };
-          if (item.lux) acc[hour].values.push(item.lux);
+          const bucket = Math.floor(item.timestamp / luxBucketSize) * luxBucketSize;
+          if (!acc[bucket]) acc[bucket] = { timestamp: bucket, values: [] };
+          if (item.lux) acc[bucket].values.push(item.lux);
           return acc;
         }, {});
 
-        const barData = Object.values(aggregatedData).map(item => ({
-          hour: item.hour,
-          lux: item.values.length ? item.values.reduce((a, b) => a + b, 0) / item.values.length : 0
-        }));
+        const barData = Object.values(aggregatedData)
+          .map(item => ({
+            timestamp: item.timestamp,
+            lux: item.values.length ? item.values.reduce((a, b) => a + b, 0) / item.values.length : 0
+          }))
+          .sort((a, b) => a.timestamp - b.timestamp);
 
         return (
           <BarChart data={barData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={`${theme.border.default}50`} vertical={false} />
-            <XAxis dataKey="hour" stroke={theme.text.muted} fontSize={11} />
+            <XAxis dataKey="timestamp" stroke={theme.text.muted} fontSize={11} tickMargin={10} minTickGap={timeRange > 24 ? 80 : 60} type="number" domain={['dataMin', 'dataMax']} tickFormatter={timeFormatter} />
             <YAxis stroke={theme.text.muted} fontSize={11} />
             <Tooltip content={<CustomTooltip />} />
             <Bar dataKey="lux" name="Licht (lx)" fill="#eab308" radius={[4, 4, 0, 0]} />
@@ -615,7 +652,7 @@ const FlexibleLuxChart = ({ data, chartType, theme }) => {
             <YAxis stroke={theme.text.muted} fontSize={11} domain={['auto', 'auto']} />
             <Tooltip content={<CustomTooltip />} />
             <Area type="monotone" dataKey="lux" name="Licht (lx)" stroke="#eab308" fill="url(#gradLuxV2)" strokeWidth={2} connectNulls={false} />
-            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} />
+            <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={timeFormatter} />
           </AreaChart>
         );
     }
@@ -624,6 +661,59 @@ const FlexibleLuxChart = ({ data, chartType, theme }) => {
   return (
     <ResponsiveContainer width="100%" height="100%">
       {renderChart()}
+    </ResponsiveContainer>
+  );
+};
+
+// Soil Moisture Time-Series Chart
+const SoilMoistureChart = ({ data, theme, timeRange, soilVisibility }) => {
+  const timeFormatter = getTimeFormatter(timeRange);
+
+  const sensorColors = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <ComposedChart data={data} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+        <defs>
+          {sensorColors.map((color, idx) => (
+            <linearGradient key={idx} id={`gradSoil${idx + 1}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor={color} stopOpacity={0.2} />
+              <stop offset="95%" stopColor={color} stopOpacity={0} />
+            </linearGradient>
+          ))}
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke={`${theme.border.default}50`} vertical={false} />
+        <XAxis
+          dataKey="timestamp"
+          stroke={theme.text.muted}
+          fontSize={11}
+          tickMargin={10}
+          minTickGap={timeRange > 24 ? 80 : 60}
+          domain={['dataMin', 'dataMax']}
+          type="number"
+          tickFormatter={timeFormatter}
+        />
+        <YAxis stroke={theme.text.muted} fontSize={11} domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
+        <Tooltip content={<CustomTooltip />} />
+        <ReferenceLine y={30} stroke="#ef444440" strokeDasharray="3 3" label={{ value: 'Trocken', position: 'left', fontSize: 10, fill: '#ef4444' }} />
+        <ReferenceLine y={70} stroke="#3b82f640" strokeDasharray="3 3" label={{ value: 'Nass', position: 'left', fontSize: 10, fill: '#3b82f6' }} />
+        {[1, 2, 3, 4, 5, 6].map((idx) => (
+          soilVisibility[`soil${idx}`] && (
+            <Area
+              key={idx}
+              type="monotone"
+              dataKey={`soil${idx}`}
+              name={`Sensor ${idx} (%)`}
+              stroke={sensorColors[idx - 1]}
+              fill={`url(#gradSoil${idx})`}
+              strokeWidth={2}
+              dot={false}
+              connectNulls={false}
+            />
+          )
+        ))}
+        <Brush dataKey="timestamp" height={30} stroke={theme.border.default} fill={theme.bg.main} tickFormatter={timeFormatter} />
+      </ComposedChart>
     </ResponsiveContainer>
   );
 };
@@ -651,6 +741,11 @@ export default function AnalyticsV2() {
     humidity: true,
     vpd: false,
     lux: true
+  });
+
+  const [soilVisibility, setSoilVisibility] = useState({
+    soil1: true, soil2: true, soil3: true,
+    soil4: true, soil5: true, soil6: true
   });
 
   // Load Data
@@ -819,6 +914,10 @@ export default function AnalyticsV2() {
 
   const toggleVisibility = (key) => {
     setVisibility(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleSoilVisibility = (key) => {
+    setSoilVisibility(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   // Error State
@@ -1087,6 +1186,7 @@ export default function AnalyticsV2() {
                 data={rawData}
                 chartType={luxChartType}
                 theme={theme}
+                timeRange={timeRange}
               />
             </div>
 
@@ -1160,6 +1260,69 @@ export default function AnalyticsV2() {
                   </div>
                 );
               })}
+            </div>
+          </GlassCard>
+
+          {/* Soil Moisture Time-Series Chart */}
+          <GlassCard className="p-4 md:p-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+              <div className="flex items-center gap-3">
+                <Waves size={20} style={{ color: '#10b981' }} />
+                <h3 className="font-bold" style={{ color: theme.text.primary }}>Bodenfeuchtigkeit Verlauf</h3>
+              </div>
+
+              {/* Soil Sensor Toggles */}
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: 'soil1', label: 'S1', color: '#ef4444' },
+                  { key: 'soil2', label: 'S2', color: '#f59e0b' },
+                  { key: 'soil3', label: 'S3', color: '#10b981' },
+                  { key: 'soil4', label: 'S4', color: '#3b82f6' },
+                  { key: 'soil5', label: 'S5', color: '#8b5cf6' },
+                  { key: 'soil6', label: 'S6', color: '#ec4899' }
+                ].map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => toggleSoilVisibility(item.key)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+                    style={{
+                      backgroundColor: soilVisibility[item.key] ? `${item.color}20` : theme.bg.hover,
+                      color: soilVisibility[item.key] ? item.color : theme.text.muted,
+                      border: `1px solid ${soilVisibility[item.key] ? `${item.color}50` : theme.border.default}`
+                    }}
+                  >
+                    {soilVisibility[item.key] ? <Eye size={12} /> : <EyeOff size={12} />}
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="h-[350px] w-full">
+              <SoilMoistureChart
+                data={rawData}
+                theme={theme}
+                timeRange={timeRange}
+                soilVisibility={soilVisibility}
+              />
+            </div>
+
+            {/* Soil Legend */}
+            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+              {[
+                { label: 'Trocken', range: '< 30%', color: '#ef4444' },
+                { label: 'Optimal', range: '50-70%', color: '#10b981' },
+                { label: 'Nass', range: '> 70%', color: '#3b82f6' }
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="p-2 rounded-lg text-center"
+                  style={{ backgroundColor: `${item.color}15`, color: item.color }}
+                >
+                  <div className="font-bold">{item.label}</div>
+                  <div className="opacity-75">{item.range}</div>
+                </div>
+              ))}
             </div>
           </GlassCard>
 
