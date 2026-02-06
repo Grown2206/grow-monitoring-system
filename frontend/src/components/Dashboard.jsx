@@ -27,7 +27,7 @@ const Logo = ({ color }) => (
 );
 
 export default function Dashboard({ changeTab }) {
-  const { isConnected } = useSocket();
+  const { isConnected, watchdogStatus } = useSocket();
   const { temp: avgTemp, humidity: avgHumidity, sensorData } = useSensorAverages();
   const { currentTheme, themeId, setTheme } = useTheme();
   const [nextEvent, setNextEvent] = useState(null);
@@ -39,7 +39,9 @@ export default function Dashboard({ changeTab }) {
 
   useEffect(() => {
     loadDashboardData();
-  }, []);
+    const interval = setInterval(loadDashboardData, 60000);
+    return () => clearInterval(interval);
+  }, [isConnected]);
 
   const loadDashboardData = async () => {
     setIsLoading(true);
@@ -50,12 +52,13 @@ export default function Dashboard({ changeTab }) {
         api.getPlants()
       ]);
 
-      if (plantsData) {
-        setPlants(plantsData);
+      const plantsArray = Array.isArray(plantsData) ? plantsData : (plantsData?.data || []);
+      if (plantsArray.length > 0) {
+        setPlants(plantsArray);
       }
 
       // Ensure events is an array before filtering
-      const eventsArray = Array.isArray(events) ? events : [];
+      const eventsArray = Array.isArray(events) ? events : (events?.data || []);
       const futureEvents = eventsArray
         .filter(e => e.date && new Date(e.date) >= new Date())
         .sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -67,10 +70,11 @@ export default function Dashboard({ changeTab }) {
       if (avgTemp && avgTemp > 28) alerts.push({ type: 'error', msg: 'Temperatur kritisch' });
       setActiveAlerts(alerts);
 
-      if (Array.isArray(history) && history.length > 0) {
+      const historyArray = Array.isArray(history) ? history : (history?.data || []);
+      if (historyArray.length > 0) {
         const now = Date.now();
         const hours4 = 4 * 60 * 60 * 1000;
-        const recentData = history.filter(d => new Date(d.timestamp).getTime() > (now - hours4));
+        const recentData = historyArray.filter(d => new Date(d.timestamp).getTime() > (now - hours4));
 
         if (recentData.length > 0) {
           const sums = recentData.reduce((acc, curr) => {
@@ -169,6 +173,47 @@ export default function Dashboard({ changeTab }) {
           )}
         </div>
       </div>
+
+      {/* Watchdog-Banner: ESP32 Warning/Critical */}
+      {watchdogStatus.esp32 === 'warning' && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border animate-in fade-in duration-300"
+          style={{
+            backgroundColor: 'rgba(245, 158, 11, 0.08)',
+            borderColor: 'rgba(245, 158, 11, 0.3)',
+            color: colors.amber[400]
+          }}>
+          <Clock size={18} className="flex-shrink-0" />
+          <span className="text-sm font-medium">
+            Letzte Sensordaten vor {watchdogStatus.elapsedMs ? Math.round(watchdogStatus.elapsedMs / 1000) : '?'}s — ESP32 reagiert nicht.
+          </span>
+        </div>
+      )}
+      {watchdogStatus.esp32 === 'critical' && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border animate-pulse"
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.08)',
+            borderColor: 'rgba(239, 68, 68, 0.3)',
+            color: colors.red[400]
+          }}>
+          <AlertCircle size={18} className="flex-shrink-0" />
+          <div className="text-sm font-medium">
+            <span className="font-bold">ESP32 offline!</span> Keine Daten seit {watchdogStatus.elapsedMs ? Math.round(watchdogStatus.elapsedMs / 60000) : '?'} Minuten. Bitte Stromversorgung und WiFi prüfen.
+          </div>
+        </div>
+      )}
+      {watchdogStatus.mqtt === false && isConnected && watchdogStatus.esp32 !== 'unknown' && (
+        <div className="flex items-center gap-3 p-4 rounded-xl border"
+          style={{
+            backgroundColor: 'rgba(249, 115, 22, 0.08)',
+            borderColor: 'rgba(249, 115, 22, 0.3)',
+            color: colors.orange[400]
+          }}>
+          <AlertCircle size={18} className="flex-shrink-0" />
+          <span className="text-sm font-medium">
+            MQTT-Broker nicht verbunden — Sensordaten und Steuerbefehle sind nicht verfügbar.
+          </span>
+        </div>
+      )}
 
       {/* Top Welcome Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
@@ -317,12 +362,25 @@ export default function Dashboard({ changeTab }) {
 
       {/* Stats Grid Skeleton while loading */}
       {(isLoading || !isConnected) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
-          <Skeleton.StatCard theme={currentTheme} />
-          <Skeleton.StatCard theme={currentTheme} />
-          <Skeleton.StatCard theme={currentTheme} />
-          <Skeleton.StatCard theme={currentTheme} />
-        </div>
+        <>
+          {!isConnected && !isLoading && (
+            <div className="flex items-center gap-3 p-4 rounded-xl border"
+              style={{
+                backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                borderColor: 'rgba(239, 68, 68, 0.2)',
+                color: colors.red[400]
+              }}>
+              <AlertCircle size={18} />
+              <span className="text-sm font-medium">Keine Verbindung zum ESP32. Stelle sicher, dass das Backend läuft und der Controller verbunden ist.</span>
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <Skeleton.StatCard theme={currentTheme} />
+            <Skeleton.StatCard theme={currentTheme} />
+            <Skeleton.StatCard theme={currentTheme} />
+            <Skeleton.StatCard theme={currentTheme} />
+          </div>
+        </>
       )}
 
       {/* Quick Actions Bar */}

@@ -125,6 +125,11 @@ TimelapseCaptureSchema.index({ plant: 1, timestamp: -1 });
 TimelapseCaptureSchema.index({ phase: 1, timestamp: -1 });
 TimelapseCaptureSchema.index({ usedInTimelapse: 1, isDeleted: 1 });
 
+// TTL-Index: Timelapse-Metadaten automatisch nach 180 Tagen löschen
+// HINWEIS: Löscht nur die DB-Einträge, nicht die Bilddateien auf der Festplatte!
+// Für Datei-Bereinigung wird ein separater Cleanup-Job benötigt.
+TimelapseCaptureSchema.index({ timestamp: 1 }, { expireAfterSeconds: 15552000 }); // 180 Tage
+
 // Virtual: Aufnahme-Datum formatiert
 TimelapseCaptureSchema.virtual('formattedDate').get(function() {
   return this.timestamp.toLocaleString('de-DE', {

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../theme';
 import { LogIn, UserPlus, Leaf, Lock, User, Mail, AlertCircle, Loader } from 'lucide-react';
 
 const Login = ({ onSuccess }) => {
   const { login, register, loading, error } = useAuth();
+  const { currentTheme } = useTheme();
   const [mode, setMode] = useState('login'); // 'login' oder 'register'
   const [formData, setFormData] = useState({
     username: '',
@@ -53,43 +55,48 @@ const Login = ({ onSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-emerald-900 to-slate-900 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4"
+      style={{ background: `linear-gradient(135deg, ${currentTheme.bg.main}, ${currentTheme.accent.color}15, ${currentTheme.bg.main})` }}>
       <div className="w-full max-w-md">
         {/* Logo & Header */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-emerald-500 rounded-2xl mb-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
+            style={{ backgroundColor: currentTheme.accent.color }}>
             <Leaf className="w-8 h-8 text-white" />
           </div>
-          <h1 className="text-3xl font-bold text-white mb-2">
+          <h1 className="text-3xl font-bold mb-2" style={{ color: currentTheme.text.primary }}>
             Grow Monitoring System
           </h1>
-          <p className="text-slate-300">
+          <p style={{ color: currentTheme.text.secondary }}>
             {mode === 'login' ? 'Willkommen zurück!' : 'Erstelle deinen Account'}
           </p>
         </div>
 
         {/* Login/Register Card */}
-        <div className="bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 overflow-hidden">
+        <div className="rounded-2xl shadow-2xl border overflow-hidden"
+          style={{ backgroundColor: currentTheme.bg.card, borderColor: currentTheme.border.default }}>
           {/* Tab Switcher */}
-          <div className="grid grid-cols-2 bg-slate-900/50">
+          <div className="grid grid-cols-2" style={{ backgroundColor: `${currentTheme.bg.main}80` }}>
             <button
               onClick={() => setMode('login')}
-              className={`py-4 font-semibold transition-all ${
-                mode === 'login'
-                  ? 'bg-slate-800 text-emerald-400 border-b-2 border-emerald-500'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className="py-4 font-semibold transition-all"
+              style={{
+                backgroundColor: mode === 'login' ? currentTheme.bg.card : 'transparent',
+                color: mode === 'login' ? currentTheme.accent.color : currentTheme.text.muted,
+                borderBottom: mode === 'login' ? `2px solid ${currentTheme.accent.color}` : '2px solid transparent'
+              }}
             >
               <LogIn className="w-4 h-4 inline mr-2" />
               Login
             </button>
             <button
               onClick={() => setMode('register')}
-              className={`py-4 font-semibold transition-all ${
-                mode === 'register'
-                  ? 'bg-slate-800 text-emerald-400 border-b-2 border-emerald-500'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className="py-4 font-semibold transition-all"
+              style={{
+                backgroundColor: mode === 'register' ? currentTheme.bg.card : 'transparent',
+                color: mode === 'register' ? currentTheme.accent.color : currentTheme.text.muted,
+                borderBottom: mode === 'register' ? `2px solid ${currentTheme.accent.color}` : '2px solid transparent'
+              }}
             >
               <UserPlus className="w-4 h-4 inline mr-2" />
               Registrieren
@@ -100,26 +107,32 @@ const Login = ({ onSuccess }) => {
           <form onSubmit={handleSubmit} className="p-8">
             {/* Error Display */}
             {(formError || error) && (
-              <div className="mb-6 p-4 bg-red-500/10 border border-red-500/50 rounded-lg flex items-start gap-3">
-                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-red-300 text-sm">{formError || error}</p>
+              <div className="mb-6 p-4 rounded-lg flex items-start gap-3"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#f87171' }} />
+                <p className="text-sm" style={{ color: '#fca5a5' }}>{formError || error}</p>
               </div>
             )}
 
             {/* Username */}
             <div className="mb-4">
-              <label className="block text-slate-300 text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: currentTheme.text.secondary }}>
                 Benutzername
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: currentTheme.text.muted }} />
                 <input
                   type="text"
                   name="username"
                   value={formData.username}
                   onChange={handleChange}
                   placeholder="dein-username"
-                  className="w-full bg-slate-900/50 border border-slate-600 rounded-lg pl-10 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full rounded-lg pl-10 pr-4 py-3 outline-none transition-all"
+                  style={{
+                    backgroundColor: currentTheme.bg.input || currentTheme.bg.main,
+                    border: `1px solid ${currentTheme.border.default}`,
+                    color: currentTheme.text.primary
+                  }}
                   disabled={loading}
                 />
               </div>
@@ -128,18 +141,23 @@ const Login = ({ onSuccess }) => {
             {/* Email (nur bei Registrierung) */}
             {mode === 'register' && (
               <div className="mb-4">
-                <label className="block text-slate-300 text-sm font-medium mb-2">
-                  E-Mail <span className="text-slate-500">(optional)</span>
+                <label className="block text-sm font-medium mb-2" style={{ color: currentTheme.text.secondary }}>
+                  E-Mail <span style={{ color: currentTheme.text.muted }}>(optional)</span>
                 </label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: currentTheme.text.muted }} />
                   <input
                     type="email"
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
                     placeholder="deine@email.de"
-                    className="w-full bg-slate-900/50 border border-slate-600 rounded-lg pl-10 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    className="w-full rounded-lg pl-10 pr-4 py-3 outline-none transition-all"
+                    style={{
+                      backgroundColor: currentTheme.bg.input || currentTheme.bg.main,
+                      border: `1px solid ${currentTheme.border.default}`,
+                      color: currentTheme.text.primary
+                    }}
                     disabled={loading}
                   />
                 </div>
@@ -148,22 +166,27 @@ const Login = ({ onSuccess }) => {
 
             {/* Password */}
             <div className="mb-6">
-              <label className="block text-slate-300 text-sm font-medium mb-2">
+              <label className="block text-sm font-medium mb-2" style={{ color: currentTheme.text.secondary }}>
                 Passwort
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5" style={{ color: currentTheme.text.muted }} />
                 <input
                   type="password"
                   name="password"
                   value={formData.password}
                   onChange={handleChange}
                   placeholder="••••••••"
-                  className="w-full bg-slate-900/50 border border-slate-600 rounded-lg pl-10 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                  className="w-full rounded-lg pl-10 pr-4 py-3 outline-none transition-all"
+                  style={{
+                    backgroundColor: currentTheme.bg.input || currentTheme.bg.main,
+                    border: `1px solid ${currentTheme.border.default}`,
+                    color: currentTheme.text.primary
+                  }}
                   disabled={loading}
                 />
               </div>
-              <p className="text-slate-500 text-xs mt-1">
+              <p className="text-xs mt-1" style={{ color: currentTheme.text.muted }}>
                 Mindestens 6 Zeichen
               </p>
             </div>
@@ -172,7 +195,10 @@ const Login = ({ onSuccess }) => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-semibold py-3 px-4 rounded-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
+              className="w-full font-semibold py-3 px-4 rounded-lg transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2 text-white"
+              style={{
+                background: `linear-gradient(135deg, ${currentTheme.accent.color}, ${currentTheme.accent.dark || currentTheme.accent.color})`
+              }}
             >
               {loading ? (
                 <>
@@ -198,14 +224,15 @@ const Login = ({ onSuccess }) => {
           </form>
 
           {/* Info Footer */}
-          <div className="px-8 pb-8 pt-4 border-t border-slate-700">
-            <p className="text-slate-400 text-xs text-center">
+          <div className="px-8 pb-8 pt-4 border-t" style={{ borderColor: currentTheme.border.default }}>
+            <p className="text-xs text-center" style={{ color: currentTheme.text.muted }}>
               {mode === 'login' ? (
                 <>
                   Noch kein Account?{' '}
                   <button
                     onClick={() => setMode('register')}
-                    className="text-emerald-400 hover:text-emerald-300 font-medium"
+                    className="font-medium"
+                    style={{ color: currentTheme.accent.color }}
                   >
                     Jetzt registrieren
                   </button>
@@ -215,7 +242,8 @@ const Login = ({ onSuccess }) => {
                   Bereits registriert?{' '}
                   <button
                     onClick={() => setMode('login')}
-                    className="text-emerald-400 hover:text-emerald-300 font-medium"
+                    className="font-medium"
+                    style={{ color: currentTheme.accent.color }}
                   >
                     Zum Login
                   </button>
@@ -227,8 +255,8 @@ const Login = ({ onSuccess }) => {
 
         {/* Security Note */}
         <div className="mt-6 text-center">
-          <p className="text-slate-500 text-xs">
-            🔒 Deine Daten sind sicher verschlüsselt
+          <p className="text-xs" style={{ color: currentTheme.text.muted }}>
+            Deine Daten sind sicher verschlüsselt
           </p>
         </div>
       </div>

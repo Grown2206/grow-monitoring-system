@@ -25,6 +25,12 @@ connectDB().then(async () => {
   // Initialize Automation Service with MongoDB config persistence
   const { initializeAutomation } = require('./services/automationService');
   await initializeAutomation();
+
+  // Starte Sensor-Watchdog (Heartbeat-Überwachung + Umgebungs-Alerts)
+  const sensorWatchdog = require('./services/watchdogService');
+  sensorWatchdog.start((event, payload) => {
+    if (io) io.emit(event, payload);
+  });
 });
 
 const app = express();

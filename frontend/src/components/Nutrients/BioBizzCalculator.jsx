@@ -6,14 +6,16 @@ import {
 } from '../../constants/biobizz';
 import {
   Calculator, Minus, Plus, Beaker, Droplet, FlaskConical,
-  Printer, Sparkles, ArrowRight
+  Printer, Sparkles, ArrowRight, Loader2
 } from 'lucide-react';
+import toast from '../../utils/toast';
 
 export default function BioBizzCalculator({ currentWeek, currentPhase, sensors, onDose, onLogDose }) {
   const { currentTheme } = useTheme();
   const [waterLiters, setWaterLiters] = useState(10);
   const [week, setWeek] = useState(currentWeek);
   const [substrate, setSubstrate] = useState('lightMix');
+  const [logLoading, setLogLoading] = useState(false);
 
   const result = useMemo(() => calculateDosage(waterLiters, week, substrate), [waterLiters, week, substrate]);
   const phase = useMemo(() => getPhaseForWeek(week), [week]);
@@ -28,16 +30,29 @@ export default function BioBizzCalculator({ currentWeek, currentPhase, sensors, 
   };
 
   const handleLogDose = async () => {
-    await onLogDose({
-      waterVolumeLiters: waterLiters,
-      week,
-      products: result.products.map(p => ({
-        productId: p.id, name: p.name, mlPerLiter: p.mlPerLiter
-      })),
-      substrate,
-      notes: `BioBizz Woche ${week} | ${SUBSTRATE_MODIFIERS[substrate].label}`,
-      triggerPump: false
-    });
+    if (logLoading) return;
+    setLogLoading(true);
+    try {
+      const res = await onLogDose({
+        waterVolumeLiters: waterLiters,
+        week,
+        products: result.products.map(p => ({
+          productId: p.id, name: p.name, mlPerLiter: p.mlPerLiter
+        })),
+        substrate,
+        notes: `BioBizz Woche ${week} | ${SUBSTRATE_MODIFIERS[substrate].label}`,
+        triggerPump: false
+      });
+      if (res?.success) {
+        toast.success(`Düngung Woche ${week} geloggt (${waterLiters}L)`);
+      } else {
+        toast.error(res?.error || 'Düngung konnte nicht geloggt werden');
+      }
+    } catch (err) {
+      toast.error(`Fehler: ${err.message || 'Düngung konnte nicht gespeichert werden'}`);
+    } finally {
+      setLogLoading(false);
+    }
   };
 
   return (
@@ -232,10 +247,10 @@ export default function BioBizzCalculator({ currentWeek, currentPhase, sensors, 
 
             {/* Aktionen */}
             <div className="flex gap-3">
-              <button onClick={handleLogDose}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all hover:scale-[1.01] border"
+              <button onClick={handleLogDose} disabled={logLoading}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all hover:scale-[1.01] border disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ backgroundColor: currentTheme.bg.hover, borderColor: currentTheme.border.default, color: currentTheme.text.secondary }}>
-                <Sparkles size={16} /> Dungung loggen
+                {logLoading ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />} {logLoading ? 'Wird geloggt...' : 'Düngung loggen'}
               </button>
               <button onClick={handleDose}
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold text-sm transition-all hover:scale-[1.01] text-white shadow-lg"

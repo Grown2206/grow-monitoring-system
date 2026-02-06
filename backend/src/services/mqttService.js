@@ -6,11 +6,19 @@ const { BROKER_URL, TOPICS, OPTIONS } = require('../config/mqtt');
 // Andere Services können auf 'sensorData' Events hören
 const sensorDataEmitter = new EventEmitter();
 
+// Sensor-Watchdog importieren (Heartbeat-Überwachung)
+let sensorWatchdog = null;
+try {
+  sensorWatchdog = require('./watchdogService');
+} catch (e) { /* Watchdog optional */ }
+
 console.log(`Verbinde zu MQTT Broker: ${BROKER_URL}`);
 const client = mqtt.connect(BROKER_URL, OPTIONS);
 
 client.on('connect', () => {
   console.log('✅ MQTT Verbunden');
+  if (sensorWatchdog) sensorWatchdog.onMQTTStatus(true);
+
   // Abonniere alle Topics
   client.subscribe(TOPICS.DATA, (err) => {
     if(!err) console.log(`📡 Höre auf ${TOPICS.DATA}`);
@@ -21,6 +29,20 @@ client.on('connect', () => {
   client.subscribe(TOPICS.NUTRIENT_SENSORS, (err) => {
     if(!err) console.log(`📡 Höre auf ${TOPICS.NUTRIENT_SENSORS}`);
   });
+});
+
+client.on('error', (err) => {
+  console.error('❌ MQTT Fehler:', err.message);
+});
+
+client.on('offline', () => {
+  console.warn('⚠️ MQTT Broker offline — Versuche Reconnect...');
+  if (sensorWatchdog) sensorWatchdog.onMQTTStatus(false);
+});
+
+client.on('close', () => {
+  console.warn('⚠️ MQTT Verbindung geschlossen');
+  if (sensorWatchdog) sensorWatchdog.onMQTTStatus(false);
 });
 
 // Lazy-Load io instance to avoid circular dependency
@@ -50,6 +72,9 @@ client.on('message', async (topic, message) => {
           // console.log("Sensordaten empfangen & gespeichert");
         }
       } catch (e) { console.error("Controller Error:", e.message); }
+
+      // Watchdog: Sensor-Heartbeat aktualisieren
+      if (sensorWatchdog) sensorWatchdog.onSensorData(data);
 
       // Broadcast an alle Socket.io Clients
       const socketIO = getIO();

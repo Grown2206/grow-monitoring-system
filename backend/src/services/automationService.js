@@ -353,6 +353,11 @@ const checkLightSchedule = (socket) => {
         lastLightState = shouldBeOn;
         deviceStates.relays.light = shouldBeOn;
         deviceStates.pwm.grow_light = shouldBeOn ? Math.round((lightIntensity / 100) * 255) : 0;
+        // Relay-Watchdog über Licht-State informieren
+        try {
+          const relayWatchdog = require('./relayWatchdogService');
+          relayWatchdog.updateRelayState('light', shouldBeOn);
+        } catch (e) { /* Watchdog nicht verfügbar */ }
     }
 };
 
@@ -638,6 +643,11 @@ const getDeviceStates = () => deviceStates;
 const updateDeviceState = (type, key, value) => {
   if (type === 'relay' && deviceStates.relays[key] !== undefined) {
     deviceStates.relays[key] = value;
+    // Relay-Watchdog über State-Änderung informieren
+    try {
+      const relayWatchdog = require('./relayWatchdogService');
+      relayWatchdog.updateRelayState(key, value);
+    } catch (e) { /* Watchdog nicht verfügbar */ }
   } else if (type === 'pwm' && deviceStates.pwm[key] !== undefined) {
     deviceStates.pwm[key] = value;
   } else if (type === 'rj11') {
@@ -666,8 +676,21 @@ const initializeAutomation = async () => {
     automationEngine.start();
     console.log('✅ AutomationEngine gestartet');
 
+    // Relay-Watchdog starten (Max-Laufzeiten + Interlocks)
+    const relayWatchdog = require('./relayWatchdogService');
+    // publishCommand und emitToClients werden unten im Event-Handler genutzt,
+    // aber für den Watchdog brauchen wir globale Referenzen
+    let _publishCommand = null;
+    let _emitToClients = null;
+
     // Listen to sensor data events from MQTT service
     sensorDataEmitter.on('sensorData', async ({ data, publishCommand, emitToClients }) => {
+      // Lazy-Init: Watchdog mit MQTT-Callbacks verbinden (einmalig beim ersten Event)
+      if (!_publishCommand) {
+        _publishCommand = (cmd) => publishCommand(cmd);
+        _emitToClients = (event, payload) => emitToClients(event, payload);
+        relayWatchdog.start(_publishCommand, _emitToClients);
+      }
       // Update AutomationEngine mit neuen Sensordaten
       automationEngine.updateSensorData(data);
 

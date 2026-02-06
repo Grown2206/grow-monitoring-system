@@ -10,7 +10,6 @@ import {
   Sliders, Thermometer, Zap as Lightning,
   BarChart3, Cpu, Beaker, Brain, ChevronDown, ChevronRight
 } from 'lucide-react';
-import { useAlert } from '../context/AlertContext';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart } from 'recharts';
 import toast from '../utils/toast';
 
@@ -49,7 +48,7 @@ const LogItem = ({ timestamp, message, type, theme }) => (
 const DeviceCard = ({
   id, label, subLabel, isOn, onToggle, disabled, icon: Icon, iconColor, iconBg,
   watts, runtime, health = 100, dimLevel, onDimChange, supportsDim, pin, theme,
-  autoControlled = false, autoReason = null
+  autoControlled = false, autoReason = null, loading = false
 }) => {
   const activeGlow = isOn && iconColor ? `0 0 20px ${iconColor}40` : 'none';
 
@@ -90,7 +89,8 @@ const DeviceCard = ({
               {pin && <span className="ml-2 font-mono opacity-60">· Pin {pin}</span>}
             </p>
             {autoReason && (
-              <p className="text-[10px] mt-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 inline-block">
+              <p className="text-[10px] mt-1 px-2 py-0.5 rounded inline-block"
+                style={{ backgroundColor: `${getSafeColor('emerald', 500)}15`, color: getSafeColor('emerald', 400) }}>
                 {autoReason}
               </p>
             )}
@@ -100,20 +100,28 @@ const DeviceCard = ({
         {/* Toggle Button */}
         <button
           onClick={onToggle}
-          disabled={disabled}
+          disabled={disabled || loading}
           className="relative w-12 h-7 rounded-full transition-colors duration-300 focus:outline-none mt-3"
           style={{
-            backgroundColor: isOn ? getSafeColor('emerald', 600) : theme.bg.hover,
-            cursor: disabled ? 'not-allowed' : 'pointer'
+            backgroundColor: loading ? theme.bg.hover : (isOn ? getSafeColor('emerald', 600) : theme.bg.hover),
+            cursor: (disabled || loading) ? 'not-allowed' : 'pointer',
+            opacity: loading ? 0.7 : 1
           }}
         >
-          <span
-            className="absolute top-1 left-1 w-5 h-5 rounded-full shadow-sm transition-transform duration-300"
-            style={{
-              backgroundColor: '#ffffff',
-              transform: isOn ? 'translateX(20px)' : 'translateX(0)'
-            }}
-          />
+          {loading ? (
+            <span className="absolute inset-0 flex items-center justify-center">
+              <span className="w-4 h-4 border-2 rounded-full animate-spin"
+                    style={{ borderColor: `${theme.text.muted}40`, borderTopColor: theme.text.secondary }} />
+            </span>
+          ) : (
+            <span
+              className="absolute top-1 left-1 w-5 h-5 rounded-full shadow-sm transition-transform duration-300"
+              style={{
+                backgroundColor: '#ffffff',
+                transform: isOn ? 'translateX(20px)' : 'translateX(0)'
+              }}
+            />
+          )}
         </button>
       </div>
 
@@ -342,26 +350,31 @@ const RJ11LightControl = ({ enabled, pwm, onToggle, onPWMChange, theme, pin }) =
 
 export default function Controls() {
   const { isConnected, socket, sensorData } = useSocket();
-  const { showAlert } = useAlert();
   const { currentTheme } = useTheme();
   const theme = currentTheme;
 
   // State
   const [safetyLocked, setSafetyLocked] = useState(true);
   const [showUnlockConfirm, setShowUnlockConfirm] = useState(false);
-  const [gpioExpanded, setGpioExpanded] = useState(false);
+  // GPIO-Sektion wurde nach Hardware.jsx (Tab "GPIO Live-Map") verschoben
   const [logs, setLogs] = useState([]);
+
+  // ConfirmDialog State (für NOT-AUS und kritische Geräte)
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false, title: '', message: '', warningText: '',
+    confirmLabel: 'Bestätigen', variant: 'warning', onConfirm: null
+  });
 
   // Relais State mit erweiterten Infos
   const [devices, setDevices] = useState({
-    light: { on: false, dimLevel: 100, runtime: 0, health: 100 },
-    fan_exhaust: { on: false, runtime: 0, health: 95 },
-    fan_circulation: { on: false, runtime: 0, health: 100 },
-    pump_main: { on: false, runtime: 0, health: 90 },
-    pump_mix: { on: false, runtime: 0, health: 90 },
-    nutrient_pump: { on: false, runtime: 0, health: 95 },
-    heater: { on: false, runtime: 0, health: 100 },
-    dehumidifier: { on: false, runtime: 0, health: 85 }
+    light: { on: false, dimLevel: 100, runtime: 0, health: 100, loading: false },
+    fan_exhaust: { on: false, runtime: 0, health: 95, loading: false },
+    fan_circulation: { on: false, runtime: 0, health: 100, loading: false },
+    pump_main: { on: false, runtime: 0, health: 90, loading: false },
+    pump_mix: { on: false, runtime: 0, health: 90, loading: false },
+    nutrient_pump: { on: false, runtime: 0, health: 95, loading: false },
+    heater: { on: false, runtime: 0, health: 100, loading: false },
+    dehumidifier: { on: false, runtime: 0, health: 85, loading: false }
   });
 
   // PWM State (0-100%) - mit localStorage Persistierung
@@ -483,33 +496,64 @@ export default function Controls() {
     setLogs(prev => [{ time, msg, type }, ...prev].slice(0, 8));
   };
 
+  // Kritische Geräte: Bestätigung beim EINSCHALTEN
+  const CRITICAL_DEVICES = new Set(['heater', 'dehumidifier', 'pump_main']);
+
+  const executeToggle = async (key) => {
+    const newState = !devices[key].on;
+
+    // Optimistic Update + Loading
+    setDevices(prev => ({
+      ...prev,
+      [key]: { ...prev[key], on: newState, loading: true }
+    }));
+    addLog(`${getLabel(key)} ${newState ? 'EIN' : 'AUS'}`);
+
+    try {
+      await api.toggleRelay(key, newState);
+      setDevices(prev => ({
+        ...prev,
+        [key]: { ...prev[key], loading: false }
+      }));
+      toast.device(getLabel(key), newState ? 'eingeschaltet' : 'ausgeschaltet', true);
+    } catch (err) {
+      console.error(err);
+      // Rollback + Loading beenden
+      setDevices(prev => ({
+        ...prev,
+        [key]: { ...prev[key], on: !newState, loading: false }
+      }));
+      toast.error(`${getLabel(key)} konnte nicht geschaltet werden`);
+      addLog(`Fehler: ${getLabel(key)}`, 'error');
+    }
+  };
+
   const toggleDevice = (key) => {
     if (safetyLocked) {
       toast.warning('Steuerung gesperrt! Entsperre zuerst.');
       return;
     }
+    if (devices[key].loading) return; // Doppelklick verhindern
 
-    const newState = !devices[key].on;
-    setDevices(prev => ({
-      ...prev,
-      [key]: { ...prev[key], on: newState }
-    }));
-
-    api.toggleRelay(key, newState)
-      .then(() => {
-        toast.device(getLabel(key), newState ? 'eingeschaltet' : 'ausgeschaltet', true);
-      })
-      .catch(err => {
-        console.error(err);
-        // Rollback on error
-        setDevices(prev => ({
-          ...prev,
-          [key]: { ...prev[key], on: !newState }
-        }));
-        toast.error(`${getLabel(key)} konnte nicht geschaltet werden`);
-        addLog(`Fehler: ${getLabel(key)}`, 'error');
+    // Bestätigung für kritische Geräte beim EINSCHALTEN
+    if (CRITICAL_DEVICES.has(key) && !devices[key].on) {
+      setConfirmDialog({
+        isOpen: true,
+        title: `${getLabel(key)} einschalten?`,
+        message: `${getLabel(key)} wird aktiviert. Stelle sicher, dass die Bedingungen stimmen.`,
+        warningText: key === 'heater'
+          ? 'Heizung verbraucht 150W. Max-Laufzeit: 4 Stunden (automatische Abschaltung).'
+          : key === 'dehumidifier'
+          ? 'Entfeuchter verbraucht 250W. Max-Laufzeit: 6 Stunden.'
+          : 'Luftbefeuchter wird aktiviert. Wassertank prüfen!',
+        confirmLabel: 'Einschalten',
+        variant: 'warning',
+        onConfirm: () => executeToggle(key)
       });
-    addLog(`${getLabel(key)} ${newState ? 'EIN' : 'AUS'}`);
+      return;
+    }
+
+    executeToggle(key);
   };
 
   const setDimLevel = (level) => {
@@ -577,18 +621,26 @@ export default function Controls() {
   };
 
   const emergencyStop = () => {
-    if (confirm("NOT-AUS: Alle Geräte werden sofort abgeschaltet!")) {
-      Object.keys(devices).forEach(key => {
-        setDevices(prev => ({
-          ...prev,
-          [key]: { ...prev[key], on: false }
-        }));
-        api.toggleRelay(key, false).catch(err => console.error(err));
-      });
-      setSafetyLocked(true);
-      addLog("NOT-AUS AUSGELÖST!", 'error');
-      toast.error('NOT-AUS AUSGELÖST! Alle Geräte abgeschaltet.');
-    }
+    setConfirmDialog({
+      isOpen: true,
+      title: 'NOT-AUS',
+      message: 'Alle Geräte werden sofort abgeschaltet!',
+      warningText: 'Dies schaltet alle aktiven Relais aus und aktiviert die Sicherheitssperre. Automation wird gestoppt.',
+      confirmLabel: 'NOT-AUS AUSLÖSEN',
+      variant: 'danger',
+      onConfirm: () => {
+        Object.keys(devices).forEach(key => {
+          setDevices(prev => ({
+            ...prev,
+            [key]: { ...prev[key], on: false }
+          }));
+          api.toggleRelay(key, false).catch(err => console.error(err));
+        });
+        setSafetyLocked(true);
+        addLog("NOT-AUS AUSGELÖST!", 'error');
+        toast.error('NOT-AUS AUSGELÖST! Alle Geräte abgeschaltet.');
+      }
+    });
   };
 
   const getLabel = (key) => {
@@ -817,6 +869,79 @@ export default function Controls() {
             </div>
           )}
 
+          {/* Confirm Dialog (NOT-AUS + kritische Geräte) */}
+          {confirmDialog.isOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+              <div
+                className="w-full max-w-md p-6 rounded-2xl border-2 shadow-2xl animate-in zoom-in-95 duration-200 mx-4"
+                style={{
+                  backgroundColor: theme.bg.card,
+                  borderColor: confirmDialog.variant === 'danger' ? getSafeColor('red', 500) : getSafeColor('amber', 500)
+                }}
+              >
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-3 rounded-xl" style={{
+                    backgroundColor: confirmDialog.variant === 'danger'
+                      ? `${getSafeColor('red', 500)}20`
+                      : `${getSafeColor('amber', 500)}20`
+                  }}>
+                    {confirmDialog.variant === 'danger'
+                      ? <ShieldAlert size={28} style={{ color: getSafeColor('red', 400) }} />
+                      : <AlertTriangle size={28} style={{ color: getSafeColor('amber', 400) }} />}
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-lg" style={{ color: theme.text.primary }}>{confirmDialog.title}</h3>
+                    <p className="text-sm" style={{ color: theme.text.muted }}>{confirmDialog.message}</p>
+                  </div>
+                </div>
+
+                {confirmDialog.warningText && (
+                  <div className="p-4 rounded-xl mb-4" style={{
+                    backgroundColor: confirmDialog.variant === 'danger'
+                      ? `${getSafeColor('red', 500)}10`
+                      : `${getSafeColor('amber', 500)}10`,
+                    borderLeft: `4px solid ${confirmDialog.variant === 'danger' ? getSafeColor('red', 500) : getSafeColor('amber', 500)}`
+                  }}>
+                    <p className="text-sm" style={{
+                      color: confirmDialog.variant === 'danger' ? getSafeColor('red', 300) : getSafeColor('amber', 300)
+                    }}>
+                      {confirmDialog.warningText}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                    className="flex-1 px-4 py-3 rounded-xl font-bold transition-colors"
+                    style={{
+                      backgroundColor: theme.bg.hover,
+                      color: theme.text.secondary,
+                      borderWidth: '1px',
+                      borderColor: theme.border.default
+                    }}
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    onClick={() => {
+                      confirmDialog.onConfirm?.();
+                      setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="flex-1 px-4 py-3 rounded-xl font-bold transition-all hover:scale-105"
+                    style={{
+                      backgroundColor: confirmDialog.variant === 'danger' ? getSafeColor('red', 600) : getSafeColor('amber', 600),
+                      color: '#ffffff',
+                      boxShadow: `0 4px 15px ${confirmDialog.variant === 'danger' ? getSafeColor('red', 500) : getSafeColor('amber', 500)}40`
+                    }}
+                  >
+                    {confirmDialog.confirmLabel}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Device Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             <DeviceCard
@@ -832,6 +957,7 @@ export default function Controls() {
               isOn={devices.light.on}
               onToggle={() => toggleDevice('light')}
               disabled={safetyLocked}
+              loading={devices.light.loading}
               supportsDim={true}
               dimLevel={devices.light.dimLevel}
               onDimChange={setDimLevel}
@@ -851,6 +977,7 @@ export default function Controls() {
               isOn={devices.fan_exhaust.on}
               onToggle={() => toggleDevice('fan_exhaust')}
               disabled={safetyLocked}
+              loading={devices.fan_exhaust.loading}
               pin={5}
               theme={theme}
             />
@@ -867,6 +994,7 @@ export default function Controls() {
               isOn={devices.fan_circulation.on}
               onToggle={() => toggleDevice('fan_circulation')}
               disabled={safetyLocked}
+              loading={devices.fan_circulation.loading}
               pin={2}
               theme={theme}
             />
@@ -883,6 +1011,7 @@ export default function Controls() {
               isOn={devices.pump_main.on}
               onToggle={() => toggleDevice('pump_main')}
               disabled={safetyLocked}
+              loading={devices.pump_main.loading}
               pin={16}
               theme={theme}
             />
@@ -899,6 +1028,7 @@ export default function Controls() {
               isOn={devices.pump_mix.on}
               onToggle={() => toggleDevice('pump_mix')}
               disabled={safetyLocked}
+              loading={devices.pump_mix.loading}
               pin={17}
               theme={theme}
             />
@@ -915,6 +1045,7 @@ export default function Controls() {
               isOn={devices.nutrient_pump.on}
               onToggle={() => toggleDevice('nutrient_pump')}
               disabled={safetyLocked}
+              loading={devices.nutrient_pump.loading}
               pin={13}
               theme={theme}
             />
@@ -931,6 +1062,7 @@ export default function Controls() {
               isOn={devices.heater.on}
               onToggle={() => toggleDevice('heater')}
               disabled={safetyLocked}
+              loading={devices.heater.loading}
               pin={12}
               theme={theme}
             />
@@ -947,6 +1079,7 @@ export default function Controls() {
               isOn={devices.dehumidifier.on}
               onToggle={() => toggleDevice('dehumidifier')}
               disabled={safetyLocked}
+              loading={devices.dehumidifier.loading}
               pin={14}
               theme={theme}
             />
@@ -1000,7 +1133,7 @@ export default function Controls() {
           <div className="mt-4 pt-4 border-t flex flex-wrap gap-2" style={{ borderColor: theme.border.default }}>
             {Object.entries(devices).filter(([_, dev]) => dev.on).map(([key, dev]) => (
               <div key={key} className="text-xs px-2 py-1 rounded-lg flex items-center gap-1" style={{ backgroundColor: theme.bg.hover, color: theme.text.secondary }}>
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: getSafeColor('emerald', 500) }} />
                 {getLabel(key)}
               </div>
             ))}
@@ -1020,304 +1153,6 @@ export default function Controls() {
             {logs.map((log, idx) => (
               <LogItem key={idx} timestamp={log.time} message={log.msg} type={log.type} theme={theme} />
             ))}
-          </div>
-        </div>
-      </div>
-
-      {/* GPIO Pin Reference - Collapsible */}
-      <div className="rounded-2xl border shadow-xl overflow-hidden" style={{ backgroundColor: theme.bg.card, borderColor: theme.border.default }}>
-        <button
-          onClick={() => setGpioExpanded(!gpioExpanded)}
-          className="w-full p-6 flex items-center justify-between hover:bg-white/5 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <Cpu size={24} style={{ color: theme.accent.color }} />
-            <div className="text-left">
-              <h3 className="font-bold text-lg" style={{ color: theme.text.primary }}>ESP32 GPIO Pin-Belegung</h3>
-              <p className="text-xs" style={{ color: theme.text.muted }}>Vollständige Übersicht aller verwendeten Pins</p>
-            </div>
-          </div>
-          <div
-            className="p-2 rounded-lg transition-transform duration-300"
-            style={{
-              backgroundColor: theme.bg.hover,
-              transform: gpioExpanded ? 'rotate(180deg)' : 'rotate(0deg)'
-            }}
-          >
-            <ChevronDown size={20} style={{ color: theme.text.muted }} />
-          </div>
-        </button>
-
-        <div
-          className={`transition-all duration-300 ease-in-out overflow-hidden ${gpioExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
-        >
-          <div className="p-6 pt-0 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {/* Relais Outputs */}
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
-            <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <Zap size={16} style={{ color: getSafeColor('emerald', 500) }} />
-              Relais (Output)
-            </h4>
-            <div className="space-y-2 text-sm font-mono">
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 4</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Hauptlicht</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.light.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.light.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 5</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Abluft</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.fan_exhaust.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.fan_exhaust.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 2</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Umluft</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.fan_circulation.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.fan_circulation.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 12</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Heizung</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.heater.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.heater.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 14</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Entfeuchter</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.dehumidifier.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.dehumidifier.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 16</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Luftbefeuchter</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.pump_main.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.pump_main.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 17</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Pumpe Tank LB</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.pump_mix.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.pump_mix.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 13</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Nährstoff-Pumpe</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${devices.nutrient_pump.on ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {devices.nutrient_pump.on ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* PWM Outputs */}
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
-            <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <Activity size={16} style={{ color: getSafeColor('blue', 500) }} />
-              PWM (Output)
-            </h4>
-            <div className="space-y-2 text-sm font-mono">
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 18</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Fan PWM (0-10V)</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${fanPWM > 0 ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {fanPWM}%
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 23</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>RJ11 Light PWM</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${lightPWM > 0 ? 'bg-amber-500/20 text-amber-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {lightPWM}%
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 27</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>RJ11 Enable</span>
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${lightRJ11Enabled ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>
-                    {lightRJ11Enabled ? 'HIGH' : 'LOW'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Analog Inputs */}
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
-            <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <BarChart3 size={16} style={{ color: getSafeColor('purple', 500) }} />
-              Analog (Input)
-            </h4>
-            <div className="space-y-2 text-sm font-mono">
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 36</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Bodensensor 1</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.soil?.[0] || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 39</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Bodensensor 2</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.soil?.[1] || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 34</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Bodensensor 3</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.soil?.[2] || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 35</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Bodensensor 4</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.soil?.[3] || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 32</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Bodensensor 5</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.soil?.[4] || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 33</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Bodensensor 6</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.soil?.[5] || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 25</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Tank Füllstand</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.tankLevel || 0}%
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 26</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Gas Sensor (MQ-135)</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    {sensorData?.gas || 0}
-                  </span>
-                </div>
-              </div>
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 15</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Nährstoff-Level</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-purple-500/20 text-purple-400">
-                    N/A
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Digital Inputs */}
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
-            <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <Gauge size={16} style={{ color: getSafeColor('cyan', 500) }} />
-              Digital (Input)
-            </h4>
-            <div className="space-y-2 text-sm font-mono">
-              <div className="flex justify-between items-center" style={{ color: theme.text.secondary }}>
-                <span>GPIO 19</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs" style={{ color: theme.text.muted }}>Fan Tachometer</span>
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-cyan-500/20 text-cyan-400">
-                    {fanRPM} RPM
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* I2C Bus */}
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
-            <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <Settings size={16} style={{ color: getSafeColor('orange', 500) }} />
-              I2C Bus
-            </h4>
-            <div className="space-y-2 text-sm font-mono">
-              <div className="flex justify-between" style={{ color: theme.text.secondary }}>
-                <span>GPIO 21</span>
-                <span className="text-xs" style={{ color: theme.text.muted }}>SDA (Data)</span>
-              </div>
-              <div className="flex justify-between" style={{ color: theme.text.secondary }}>
-                <span>GPIO 22</span>
-                <span className="text-xs" style={{ color: theme.text.muted }}>SCL (Clock)</span>
-              </div>
-              <div className="text-xs mt-3 pt-3 border-t" style={{ color: theme.text.muted, borderColor: theme.border.default }}>
-                <div>• SHT31 (Temp/Humidity)</div>
-                <div>• BH1750 (Licht)</div>
-                <div>• EZO-EC (Leitfähigkeit)</div>
-                <div>• EZO-pH (pH-Wert)</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Reserved/Special Pins */}
-          <div className="p-4 rounded-lg border" style={{ backgroundColor: theme.bg.hover, borderColor: theme.border.default }}>
-            <h4 className="font-bold mb-3 flex items-center gap-2" style={{ color: theme.text.primary }}>
-              <AlertTriangle size={16} style={{ color: getSafeColor('amber', 500) }} />
-              Reserviert
-            </h4>
-            <div className="space-y-2 text-xs" style={{ color: theme.text.muted }}>
-              <div>GPIO 0: Boot Mode</div>
-              <div>GPIO 1: UART TX</div>
-              <div>GPIO 3: UART RX</div>
-              <div>GPIO 6-11: Flash</div>
-            </div>
-          </div>
           </div>
         </div>
       </div>

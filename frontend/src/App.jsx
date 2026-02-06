@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { SocketProvider, useSocket } from './context/SocketContext';
 import { AlertProvider, useAlert } from './context/AlertContext';
@@ -31,20 +31,50 @@ import {
   TreePine, Activity, Cog, Sparkles, Gauge
 } from 'lucide-react';
 
-// Erweiterte Status-Badge Komponente
+// Erweiterte Status-Badge Komponente (3 Stufen: fresh/stale/offline)
 const StatusBadge = () => {
-  const { isConnected } = useSocket();
+  const { isConnected, watchdogStatus, lastSensorTimestamp } = useSocket();
+  const [dataAge, setDataAge] = useState(null);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (lastSensorTimestamp) {
+        setDataAge(Math.round((Date.now() - lastSensorTimestamp) / 1000));
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [lastSensorTimestamp]);
+
+  const getQuality = () => {
+    if (!isConnected) return 'offline';
+    if (watchdogStatus?.esp32 === 'critical') return 'offline';
+    if (!lastSensorTimestamp || dataAge > 60) return 'offline';
+    if (dataAge > 10 || watchdogStatus?.esp32 === 'warning') return 'stale';
+    return 'fresh';
+  };
+
+  const quality = getQuality();
+
+  const config = {
+    fresh:   { bg: 'rgba(16,185,129,0.1)', text: '#34d399', border: 'rgba(16,185,129,0.2)', dot: '#10b981', label: 'SYSTEM ONLINE', pulse: true },
+    stale:   { bg: 'rgba(245,158,11,0.1)', text: '#fbbf24', border: 'rgba(245,158,11,0.2)', dot: '#f59e0b', label: dataAge ? `DATEN VOR ${dataAge}S` : 'VERZÖGERT', pulse: false },
+    offline: { bg: 'rgba(239,68,68,0.1)',   text: '#f87171', border: 'rgba(239,68,68,0.2)', dot: '#ef4444', label: 'VERBINDUNG GETRENNT', pulse: false }
+  };
+
+  const c = config[quality];
+
   return (
-    <div className={`px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border shadow-sm transition-all duration-300 ${
-      isConnected 
-        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 shadow-emerald-500/10' 
-        : 'bg-red-500/10 text-red-400 border-red-500/20 shadow-red-500/10'
-    }`}>
-      <span className={`relative flex h-2.5 w-2.5`}>
-        {isConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-        <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${isConnected ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+    <div className="px-4 py-1.5 rounded-full text-xs font-bold flex items-center gap-2 border shadow-sm transition-all duration-500"
+         style={{ backgroundColor: c.bg, color: c.text, borderColor: c.border }}>
+      <span className="relative flex h-2.5 w-2.5">
+        {c.pulse && (
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75"
+                style={{ backgroundColor: c.dot }} />
+        )}
+        <span className="relative inline-flex rounded-full h-2.5 w-2.5"
+              style={{ backgroundColor: c.dot }} />
       </span>
-      {isConnected ? 'SYSTEM ONLINE' : 'VERBINDUNG GETRENNT'}
+      {c.label}
     </div>
   );
 };

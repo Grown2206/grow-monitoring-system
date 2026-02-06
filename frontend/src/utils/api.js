@@ -125,6 +125,11 @@ export const api = {
     return api.get(`/history${query ? `?${query}` : ''}`);
   },
 
+  getAggregatedHistory: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return api.get(`/history/aggregated${query ? `?${query}` : ''}`);
+  },
+
   getLogs: () => api.get('/logs'),
 
   getPlants: () => api.get('/plants'),

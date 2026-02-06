@@ -1,51 +1,136 @@
 const SensorLog = require('../models/SensorLog');
 const DeviceState = require('../models/DeviceState');
 
+// ==========================================
+// SENSOR-VALIDIERUNG
+// Filtert ungültige Messwerte (Sensor-Ausfall → 0.0)
+// ==========================================
+
+/**
+ * Validiert einen Temperaturwert
+ * @returns {number|null} Validierter Wert oder null bei Ausfall
+ */
+const validateTemp = (value) => {
+  if (value === undefined || value === null) return undefined;
+  // Sensor-Ausfall: 0.0 bei SHT31 bedeutet meistens defekt
+  if (value === 0 || value === 0.0) return null;
+  // Plausibilitätsbereich: -10°C bis 60°C
+  if (value < -10 || value > 60) return null;
+  return value;
+};
+
+/**
+ * Validiert einen Luftfeuchtigkeitswert
+ * @returns {number|null} Validierter Wert oder null bei Ausfall
+ */
+const validateHumidity = (value) => {
+  if (value === undefined || value === null) return undefined;
+  if (value === 0 || value === 0.0) return null;
+  if (value < 0 || value > 100) return null;
+  return value;
+};
+
+/**
+ * Validiert einen Lux-Wert
+ * @returns {number|null} Validierter Wert oder null bei Ausfall
+ */
+const validateLux = (value) => {
+  if (value === undefined || value === null) return undefined;
+  if (value < 0 || value > 200000) return null;
+  return value;
+};
+
+/**
+ * Validiert einen Analog-Wert (Soil, Tank, Gas)
+ * @returns {number|null} Validierter Wert oder null bei Ausfall
+ */
+const validateAnalog = (value, max = 4095) => {
+  if (value === undefined || value === null) return undefined;
+  if (value < 0 || value > max) return null;
+  return value;
+};
+
+/**
+ * Berechnet Sensor-Health-Flags basierend auf den validierten Daten
+ */
+const calculateSensorHealth = (validated) => ({
+  bottom: validated.temp_bottom !== null && validated.humidity_bottom !== null,
+  middle: validated.temp_middle !== null && validated.humidity_middle !== null,
+  top: validated.temp_top !== null && validated.humidity_top !== null,
+  light: validated.lux !== null && validated.lux !== undefined,
+  air: validated.ens160_eco2 !== null && validated.ens160_eco2 !== undefined
+});
+
 // INTERNE Funktion zum Speichern (wird von MQTT/Sensor-Service aufgerufen)
 const saveSensorData = async (dataPayload) => {
   try {
     if (!dataPayload) return;
 
-    // WICHTIG: Wir nutzen die Durchschnittswerte, die der ESP32 bereits berechnet hat!
-    // Falls der ESP32 'temp' sendet (v3.3), nutzen wir das.
-    // Falls Sensoren 0.0 sind, ignorieren wir sie f�r die DB-Speicherung nicht (Rohdaten),
-    // aber der Hauptwert 'temp' muss stimmen.
-    
-    const avgTemp = dataPayload.temp; // Der ESP32 sendet jetzt den korrekten Durchschnitt
-    const avgHum = dataPayload.humidity; 
+    // Sensor-Validierung: Filtere ungültige Werte
+    const validated = {
+      temp_bottom: validateTemp(dataPayload.temp_bottom),
+      temp_middle: validateTemp(dataPayload.temp_middle),
+      temp_top: validateTemp(dataPayload.temp_top),
+      humidity_bottom: validateHumidity(dataPayload.humidity_bottom),
+      humidity_middle: validateHumidity(dataPayload.humidity_middle),
+      humidity_top: validateHumidity(dataPayload.humidity_top),
+      lux: validateLux(dataPayload.lux),
+      ens160_eco2: dataPayload.ens160_eco2,
+      ens160_tvoc: dataPayload.ens160_tvoc,
+      ens160_aqi: dataPayload.ens160_aqi,
+      aht21_temp: validateTemp(dataPayload.aht21_temp),
+      aht21_humidity: validateHumidity(dataPayload.aht21_humidity)
+    };
+
+    // Durchschnittswerte neu berechnen (nur gültige Sensoren)
+    const validTemps = [validated.temp_bottom, validated.temp_middle, validated.temp_top]
+      .filter(t => t !== null && t !== undefined);
+    const validHumidities = [validated.humidity_bottom, validated.humidity_middle, validated.humidity_top]
+      .filter(h => h !== null && h !== undefined);
+
+    const avgTemp = validTemps.length > 0
+      ? validTemps.reduce((a, b) => a + b, 0) / validTemps.length
+      : dataPayload.temp; // Fallback auf ESP32-Durchschnitt
+    const avgHum = validHumidities.length > 0
+      ? validHumidities.reduce((a, b) => a + b, 0) / validHumidities.length
+      : dataPayload.humidity;
+
+    // Sensor-Health berechnen
+    const sensorHealth = calculateSensorHealth(validated);
 
     const newLog = new SensorLog({
       device: "esp32_main",
       readings: {
-        // HAUPTWERTE (Wichtig f�r Diagramme!)
-        temp: avgTemp, 
+        // HAUPTWERTE (validiert, für Diagramme)
+        temp: avgTemp,
         humidity: avgHum,
 
-        // Einzel-Sensoren (Rohdaten f�r Details)
-        temp_bottom: dataPayload.temp_bottom,
-        temp_middle: dataPayload.temp_middle,
-        temp_top: dataPayload.temp_top,
-        
-        humidity_bottom: dataPayload.humidity_bottom,
-        humidity_middle: dataPayload.humidity_middle,
-        humidity_top: dataPayload.humidity_top,
+        // Einzel-Sensoren (validiert — null bei Ausfall statt 0.0)
+        temp_bottom: validated.temp_bottom,
+        temp_middle: validated.temp_middle,
+        temp_top: validated.temp_top,
 
-        // Andere Sensoren
-        lux: dataPayload.lux,
-        tankLevel: dataPayload.tank,
-        gasLevel: dataPayload.gas,
+        humidity_bottom: validated.humidity_bottom,
+        humidity_middle: validated.humidity_middle,
+        humidity_top: validated.humidity_top,
+
+        // Andere Sensoren (validiert)
+        lux: validated.lux,
+        tankLevel: validateAnalog(dataPayload.tank),
+        gasLevel: validateAnalog(dataPayload.gas),
         soilMoisture: dataPayload.soil,
 
         // VL53L0X Pflanzenhöhen (mm)
         heights: dataPayload.heights,
 
-        // ENS160 + AHT21 Luftqualität
-        ens160_eco2: dataPayload.ens160_eco2,
-        ens160_tvoc: dataPayload.ens160_tvoc,
-        ens160_aqi: dataPayload.ens160_aqi,
-        aht21_temp: dataPayload.aht21_temp,
-        aht21_humidity: dataPayload.aht21_humidity
-      }
+        // ENS160 + AHT21 Luftqualität (validiert)
+        ens160_eco2: validated.ens160_eco2,
+        ens160_tvoc: validated.ens160_tvoc,
+        ens160_aqi: validated.ens160_aqi,
+        aht21_temp: validated.aht21_temp,
+        aht21_humidity: validated.aht21_humidity
+      },
+      sensorHealth
     });
 
     await newLog.save();
@@ -63,7 +148,9 @@ const saveSensorData = async (dataPayload) => {
       });
     }
 
-    console.log(`?? Daten gespeichert (Temp ?: ${avgTemp}�C, Hum ?: ${avgHum}%)`);
+    // Log mit Health-Info
+    const healthStatus = Object.values(sensorHealth).every(v => v) ? '✅' : '⚠️';
+    console.log(`💾 Daten gespeichert ${healthStatus} (Temp Ø: ${avgTemp?.toFixed(1)}°C, Hum Ø: ${avgHum?.toFixed(1)}%)`);
     return true;
 
   } catch (error) {
@@ -125,7 +212,105 @@ const getHistory = async (req, res, next) => {
   }
 };
 
+// API Route: Aggregierte Sensor-Historie für Charts (serverseitiges Downsampling)
+const getAggregatedHistory = async (req, res, next) => {
+  try {
+    const hours = Math.max(1, Math.min(parseInt(req.query.hours) || 24, 720)); // max 30 Tage
+    const maxPoints = Math.max(60, Math.min(parseInt(req.query.points) || 300, 500));
+
+    const now = new Date();
+    const from = new Date(now.getTime() - hours * 60 * 60 * 1000);
+
+    // Bucket-Größe berechnen: Zeitraum / gewünschte Punkte (in Millisekunden)
+    const totalMs = hours * 60 * 60 * 1000;
+    const bucketMs = Math.ceil(totalMs / maxPoints);
+
+    const pipeline = [
+      // 1. Nur Daten im Zeitraum
+      { $match: { timestamp: { $gte: from, $lte: now } } },
+
+      // 2. Bucket-Key berechnen: Timestamp auf Bucket-Größe runden
+      { $addFields: {
+        bucket: {
+          $toDate: {
+            $multiply: [
+              { $floor: { $divide: [{ $toLong: '$timestamp' }, bucketMs] } },
+              bucketMs
+            ]
+          }
+        }
+      }},
+
+      // 3. Pro Bucket aggregieren
+      { $group: {
+        _id: '$bucket',
+        timestamp: { $first: '$bucket' },
+        count: { $sum: 1 },
+
+        // Temperatur (3 SHT31 + Durchschnitt)
+        temp: { $avg: '$readings.temp' },
+        temp_min: { $min: '$readings.temp' },
+        temp_max: { $max: '$readings.temp' },
+        temp_bottom: { $avg: '$readings.temp_bottom' },
+        temp_middle: { $avg: '$readings.temp_middle' },
+        temp_top: { $avg: '$readings.temp_top' },
+
+        // Luftfeuchtigkeit
+        humidity: { $avg: '$readings.humidity' },
+        humidity_min: { $min: '$readings.humidity' },
+        humidity_max: { $max: '$readings.humidity' },
+        humidity_bottom: { $avg: '$readings.humidity_bottom' },
+        humidity_middle: { $avg: '$readings.humidity_middle' },
+        humidity_top: { $avg: '$readings.humidity_top' },
+
+        // Licht
+        lux: { $avg: '$readings.lux' },
+
+        // Tank & Gas
+        tankLevel: { $avg: '$readings.tankLevel' },
+        gasLevel: { $avg: '$readings.gasLevel' },
+
+        // Bodenfeuchtigkeit (Array → Durchschnitt pro Slot)
+        soilMoisture: { $first: '$readings.soilMoisture' },
+
+        // ENS160 + AHT21
+        ens160_eco2: { $avg: '$readings.ens160_eco2' },
+        ens160_tvoc: { $avg: '$readings.ens160_tvoc' },
+        aht21_temp: { $avg: '$readings.aht21_temp' },
+        aht21_humidity: { $avg: '$readings.aht21_humidity' }
+      }},
+
+      // 4. Sortieren nach Zeit
+      { $sort: { timestamp: 1 } },
+
+      // 5. Felder bereinigen
+      { $project: { _id: 0 } }
+    ];
+
+    const aggregated = await SensorLog.aggregate(pipeline);
+
+    res.json({
+      success: true,
+      data: aggregated,
+      meta: {
+        hours,
+        from,
+        to: now,
+        points: aggregated.length,
+        bucketMs,
+        bucketLabel: bucketMs >= 60000
+          ? `${Math.round(bucketMs / 60000)} min`
+          : `${Math.round(bucketMs / 1000)} sek`
+      }
+    });
+  } catch (error) {
+    console.error("❌ Fehler in getAggregatedHistory:", error);
+    next(error);
+  }
+};
+
 module.exports = {
   saveSensorData,
-  getHistory
+  getHistory,
+  getAggregatedHistory
 };

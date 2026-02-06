@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { Camera, Wifi, WifiOff, RefreshCw, Play, Pause, Download, Maximize2 } from 'lucide-react';
+import { useTheme } from '../../theme';
 
 const ESP32CameraView = () => {
+  const { currentTheme } = useTheme();
+
   const [cameras, setCameras] = useState([
     {
       id: 'cam1',
@@ -150,20 +153,44 @@ const ESP32CameraView = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700/50">
+      <div
+        className="rounded-xl p-6 border"
+        style={{
+          backgroundColor: currentTheme.bg.hover,
+          borderColor: currentTheme.border.light
+        }}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-purple-500 to-pink-500 p-3 rounded-lg">
-              <Camera className="text-white" size={24} />
+            <div
+              className="p-3 rounded-lg"
+              style={{ background: 'linear-gradient(to bottom right, #a855f7, #ec4899)' }}
+            >
+              <Camera style={{ color: '#ffffff' }} size={24} />
             </div>
             <div>
-              <h2 className="text-2xl font-bold text-white">ESP32-CAM Live View</h2>
-              <p className="text-slate-400 text-sm">Live-Streams von beiden Grow-Kameras</p>
+              <h2
+                className="text-2xl font-bold"
+                style={{ color: currentTheme.text.primary }}
+              >
+                ESP32-CAM Live View
+              </h2>
+              <p
+                className="text-sm"
+                style={{ color: currentTheme.text.secondary }}
+              >
+                Live-Streams von beiden Grow-Kameras
+              </p>
             </div>
           </div>
           <button
             onClick={refreshStream}
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg transition-colors border border-emerald-500/20"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg transition-colors border"
+            style={{
+              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              color: '#34d399',
+              borderColor: 'rgba(16, 185, 129, 0.2)'
+            }}
           >
             <RefreshCw size={18} />
             <span className="hidden sm:inline">Aktualisieren</span>
@@ -174,30 +201,59 @@ const ESP32CameraView = () => {
       {/* Kamera Konfiguration */}
       <div className="grid md:grid-cols-2 gap-4">
         {cameras.map((camera) => (
-          <div key={camera.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50">
+          <div
+            key={camera.id}
+            className="rounded-xl p-4 border"
+            style={{
+              backgroundColor: currentTheme.bg.hover,
+              borderColor: currentTheme.border.light
+            }}
+          >
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-white">{camera.name}</h3>
-              <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold ${
-                camera.status === 'online'
-                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                  : 'bg-red-500/10 text-red-400 border border-red-500/20'
-              }`}>
+              <h3
+                className="text-lg font-semibold"
+                style={{ color: currentTheme.text.primary }}
+              >
+                {camera.name}
+              </h3>
+              <div
+                className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border"
+                style={camera.status === 'online'
+                  ? { backgroundColor: 'rgba(16, 185, 129, 0.1)', color: '#34d399', borderColor: 'rgba(16, 185, 129, 0.2)' }
+                  : { backgroundColor: 'rgba(239, 68, 68, 0.1)', color: '#f87171', borderColor: 'rgba(239, 68, 68, 0.2)' }
+                }
+              >
                 {camera.status === 'online' ? <Wifi size={12} /> : <WifiOff size={12} />}
                 {camera.status === 'online' ? 'ONLINE' : 'OFFLINE'}
               </div>
             </div>
 
             <div className="space-y-2">
-              <label className="block text-sm text-slate-400">IP-Adresse</label>
+              <label
+                className="block text-sm"
+                style={{ color: currentTheme.text.secondary }}
+              >
+                IP-Adresse
+              </label>
               <input
                 type="text"
                 placeholder="z.B. 192.168.2.100"
                 value={camera.ip}
                 onChange={(e) => updateCameraIP(camera.id, e.target.value)}
-                className="w-full px-3 py-2 bg-slate-900/50 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:border-emerald-500 focus:outline-none"
+                className="w-full px-3 py-2 rounded-lg focus:outline-none"
+                style={{
+                  backgroundColor: currentTheme.bg.input,
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: currentTheme.border.light,
+                  color: currentTheme.text.primary
+                }}
               />
               {camera.lastUpdate && (
-                <p className="text-xs text-slate-500">
+                <p
+                  className="text-xs"
+                  style={{ color: currentTheme.text.muted }}
+                >
                   Zuletzt geprüft: {camera.lastUpdate.toLocaleTimeString()}
                 </p>
               )}
@@ -209,27 +265,55 @@ const ESP32CameraView = () => {
       {/* Live-Streams */}
       <div className="grid md:grid-cols-2 gap-6">
         {cameras.map((camera) => (
-          <div key={camera.id} className="bg-slate-800/50 rounded-xl overflow-hidden border border-slate-700/50">
+          <div
+            key={camera.id}
+            className="rounded-xl overflow-hidden border"
+            style={{
+              backgroundColor: currentTheme.bg.hover,
+              borderColor: currentTheme.border.light
+            }}
+          >
             {/* Stream Header */}
-            <div className="p-4 border-b border-slate-700/50 flex items-center justify-between">
+            <div
+              className="p-4 flex items-center justify-between"
+              style={{ borderBottom: `1px solid ${currentTheme.border.light}` }}
+            >
               <div>
-                <h3 className="font-semibold text-white">{camera.name}</h3>
-                <p className="text-xs text-slate-400">{camera.ip || 'Keine IP konfiguriert'}</p>
+                <h3
+                  className="font-semibold"
+                  style={{ color: currentTheme.text.primary }}
+                >
+                  {camera.name}
+                </h3>
+                <p
+                  className="text-xs"
+                  style={{ color: currentTheme.text.secondary }}
+                >
+                  {camera.ip || 'Keine IP konfiguriert'}
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => takeSnapshot(camera)}
                   disabled={camera.status !== 'online'}
-                  className="p-2 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Snapshot aufnehmen"
+                  style={{
+                    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                    color: '#60a5fa'
+                  }}
                 >
                   <Download size={16} />
                 </button>
                 <button
                   onClick={() => setFullscreenCam(camera)}
                   disabled={camera.status !== 'online'}
-                  className="p-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="p-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   title="Vollbild"
+                  style={{
+                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                    color: '#c084fc'
+                  }}
                 >
                   <Maximize2 size={16} />
                 </button>
@@ -237,7 +321,10 @@ const ESP32CameraView = () => {
             </div>
 
             {/* Stream Container */}
-            <div className="relative aspect-video bg-slate-900">
+            <div
+              className="relative aspect-video"
+              style={{ backgroundColor: currentTheme.bg.card }}
+            >
               {camera.status === 'online' && camera.streamUrl ? (
                 <img
                   key={refreshKey}
@@ -252,7 +339,10 @@ const ESP32CameraView = () => {
                   }}
                 />
               ) : (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center"
+                  style={{ color: currentTheme.text.muted }}
+                >
                   <Camera size={48} className="mb-3 opacity-50" />
                   <p className="text-sm">
                     {camera.ip ? 'Kamera offline oder nicht erreichbar' : 'Bitte IP-Adresse eingeben'}
@@ -262,11 +352,20 @@ const ESP32CameraView = () => {
             </div>
 
             {/* Stream Footer */}
-            <div className="p-3 bg-slate-900/50 flex items-center justify-between text-xs text-slate-400">
+            <div
+              className="p-3 flex items-center justify-between text-xs"
+              style={{
+                backgroundColor: currentTheme.bg.card,
+                color: currentTheme.text.secondary
+              }}
+            >
               <span>MJPEG Stream</span>
               {camera.status === 'online' && (
                 <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                  <div
+                    className="w-2 h-2 rounded-full animate-pulse"
+                    style={{ backgroundColor: '#10b981' }}
+                  ></div>
                   <span>Live</span>
                 </div>
               )}
@@ -278,17 +377,27 @@ const ESP32CameraView = () => {
       {/* Fullscreen Modal */}
       {fullscreenCam && (
         <div
-          className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.95)' }}
           onClick={() => setFullscreenCam(null)}
         >
           <div className="max-w-7xl w-full">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-2xl font-bold text-white">{fullscreenCam.name}</h3>
+              <h3
+                className="text-2xl font-bold"
+                style={{ color: currentTheme.text.primary }}
+              >
+                {fullscreenCam.name}
+              </h3>
               <button
                 onClick={() => setFullscreenCam(null)}
-                className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-lg transition-colors"
+                className="px-4 py-2 rounded-lg transition-colors"
+                style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  color: '#f87171'
+                }}
               >
-                Schließen
+                Schliessen
               </button>
             </div>
             <img
@@ -302,16 +411,41 @@ const ESP32CameraView = () => {
       )}
 
       {/* Hilfe-Bereich */}
-      <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
-        <h3 className="text-blue-400 font-semibold mb-2 flex items-center gap-2">
+      <div
+        className="rounded-xl p-4 border"
+        style={{
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          borderColor: 'rgba(59, 130, 246, 0.2)'
+        }}
+      >
+        <h3
+          className="font-semibold mb-2 flex items-center gap-2"
+          style={{ color: '#60a5fa' }}
+        >
           <Camera size={18} />
           Schnellhilfe
         </h3>
-        <div className="text-sm text-slate-300 space-y-1">
-          <p>• Geben Sie die IP-Adresse Ihrer ESP32-CAM ein (zu finden in den seriellen Logs)</p>
-          <p>• Die Kamera muss im gleichen Netzwerk sein wie dieser PC</p>
-          <p>• Standard-Stream: <code className="bg-slate-800 px-2 py-1 rounded">http://KAMERA-IP/stream</code></p>
-          <p>• Snapshot: <code className="bg-slate-800 px-2 py-1 rounded">http://KAMERA-IP/capture</code></p>
+        <div className="text-sm space-y-1" style={{ color: currentTheme.text.primary }}>
+          <p>&#8226; Geben Sie die IP-Adresse Ihrer ESP32-CAM ein (zu finden in den seriellen Logs)</p>
+          <p>&#8226; Die Kamera muss im gleichen Netzwerk sein wie dieser PC</p>
+          <p>
+            &#8226; Standard-Stream:{' '}
+            <code
+              className="px-2 py-1 rounded"
+              style={{ backgroundColor: currentTheme.bg.hover }}
+            >
+              http://KAMERA-IP/stream
+            </code>
+          </p>
+          <p>
+            &#8226; Snapshot:{' '}
+            <code
+              className="px-2 py-1 rounded"
+              style={{ backgroundColor: currentTheme.bg.hover }}
+            >
+              http://KAMERA-IP/capture
+            </code>
+          </p>
         </div>
       </div>
     </div>

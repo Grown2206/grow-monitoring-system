@@ -45,6 +45,16 @@ const getSafeColor = (colorName, weight) => {
 
 // ==================== HILFSFUNKTIONEN ====================
 
+// Zeitachsen-Formatierung je nach gewähltem Zeitraum
+const formatTimeAxis = (timestamp, hours) => {
+  const d = new Date(timestamp);
+  if (hours > 24) {
+    return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' }) + ' ' +
+           d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+  return d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+};
+
 // Berechne lineare Regression (Trend)
 const calculateLinearRegression = (data, key) => {
   if (!data || data.length < 2) return null;
@@ -663,7 +673,7 @@ const TrendLineChart = ({ data, metric, label, theme }) => {
             fontSize={11}
             type="number"
             domain={['dataMin', 'dataMax']}
-            tickFormatter={(ts) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            tickFormatter={(ts) => formatTimeAxis(ts, timeRange)}
           />
           <YAxis stroke={theme.text.muted} fontSize={11} />
           <Tooltip contentStyle={{ backgroundColor: theme.bg.card, borderColor: theme.border.default, borderRadius: '8px' }} />
@@ -725,52 +735,62 @@ export default function Analytics() {
     setLoading(true);
     try {
       setError(null);
-      // Safe catch falls API nicht da ist
       if (!api) throw new Error("API Service nicht verfügbar");
 
+      // Aggregierten Endpoint nutzen — serverseitiges Downsampling
+      const pointsForRange = timeRange <= 1 ? 120 : timeRange <= 6 ? 240 : 300;
+
       const [historyRes, logData, plantData] = await Promise.all([
-        api.getHistory({ hours: timeRange }).catch(e => []),
+        api.getAggregatedHistory({ hours: timeRange, points: pointsForRange }).catch(e => {
+          console.warn('Aggregation nicht verfügbar, Fallback auf getHistory:', e);
+          return null;
+        }),
         api.getLogs().catch(e => []),
         api.getPlants().catch(e => [])
       ]);
 
-      const history = historyRes?.data || historyRes || [];
+      // Falls Aggregation fehlschlägt → Fallback auf alten Endpoint
+      let history;
+      let isAggregated = false;
+      if (historyRes?.data && Array.isArray(historyRes.data)) {
+        history = historyRes.data;
+        isAggregated = true;
+      } else {
+        const fallback = await api.getHistory({ hours: timeRange, limit: 2000 }).catch(e => []);
+        history = fallback?.data || fallback || [];
+      }
+
       if (!Array.isArray(history)) {
-        console.warn("History ist kein Array, verwende leeres Array");
         setRawData([]);
         setLoading(false);
         return;
       }
 
-      const processed = history
-        .filter(entry => entry && entry.readings)
-        .map(entry => {
-          const r = entry.readings;
-          const soil = Array.isArray(r.soilMoisture) ? r.soilMoisture : [0, 0, 0, 0, 0, 0];
+      let processed;
+      if (isAggregated) {
+        // Aggregierte Daten: Felder liegen direkt auf Top-Level (temp, humidity, lux, ...)
+        processed = history.map(entry => {
+          const T = entry.temp || 0;
+          const RH = entry.humidity || 0;
+          const SVP = T > 0 ? 0.61078 * Math.exp((17.27 * T) / (T + 237.3)) : 0;
+          const VPD = T > 0 && RH > 0 ? SVP * (1 - RH / 100) : 0;
+          const soil = Array.isArray(entry.soilMoisture) ? entry.soilMoisture : [0, 0, 0, 0, 0, 0];
+          const ts = new Date(entry.timestamp).getTime();
 
-          // Calculate averages from 3 SHT31 sensors (exclude 0 values from non-existent sensors)
-          const temps = [r.temp_bottom, r.temp_middle, r.temp_top].filter(t => t != null && typeof t === 'number' && t > 0);
-          const humidities = [r.humidity_bottom, r.humidity_middle, r.humidity_top].filter(h => h != null && typeof h === 'number' && h > 0);
-          const T = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
-          const RH = humidities.length > 0 ? humidities.reduce((a, b) => a + b, 0) / humidities.length : 0;
-
-          // Magnus Formel
-          const SVP = 0.61078 * Math.exp((17.27 * T) / (T + 237.3));
-          const VPD = SVP * (1 - RH / 100);
-
-          // Hilfsfunktion: Bodenfeuchte konvertieren
-          // Nutze zentrale Kalibrierungs-Funktion für konsistente Werte
-          // Sensor Index 1-6 entspricht soil[0]-soil[5]
           return {
-            timestamp: new Date(entry.timestamp).getTime(),
-            dateStr: new Date(entry.timestamp).toLocaleString(),
-            timeStr: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            temp: T > 0 ? T : null,
-            humidity: RH > 0 ? RH : null,
+            timestamp: ts,
+            dateStr: new Date(ts).toLocaleString(),
+            timeStr: new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            temp: T > 0 ? parseFloat(T.toFixed(1)) : null,
+            temp_min: entry.temp_min ?? null,
+            temp_max: entry.temp_max ?? null,
+            humidity: RH > 0 ? parseFloat(RH.toFixed(1)) : null,
+            humidity_min: entry.humidity_min ?? null,
+            humidity_max: entry.humidity_max ?? null,
             vpd: VPD > 0 ? parseFloat(VPD.toFixed(2)) : 0,
-            lux: typeof r.lux === 'number' ? r.lux : null,
-            tankLevel: typeof r.tankLevel === 'number' ? r.tankLevel : null,
-            gasLevel: typeof r.gasLevel === 'number' ? r.gasLevel : null,
+            lux: entry.lux != null ? Math.round(entry.lux) : null,
+            tankLevel: entry.tankLevel != null ? Math.round(entry.tankLevel) : null,
+            gasLevel: entry.gasLevel != null ? Math.round(entry.gasLevel) : null,
             soil1: convertToPercent(soil[0], 1),
             soil2: convertToPercent(soil[1], 2),
             soil3: convertToPercent(soil[2], 3),
@@ -778,9 +798,42 @@ export default function Analytics() {
             soil5: convertToPercent(soil[4], 5),
             soil6: convertToPercent(soil[5], 6),
           };
-        })
-        .sort((a, b) => a.timestamp - b.timestamp);
+        });
+      } else {
+        // Fallback: Nicht-aggregierte Rohdaten (altes Format mit entry.readings)
+        processed = history
+          .filter(entry => entry && entry.readings)
+          .map(entry => {
+            const r = entry.readings;
+            const soil = Array.isArray(r.soilMoisture) ? r.soilMoisture : [0, 0, 0, 0, 0, 0];
+            const temps = [r.temp_bottom, r.temp_middle, r.temp_top].filter(t => t != null && typeof t === 'number' && t > 0);
+            const humidities = [r.humidity_bottom, r.humidity_middle, r.humidity_top].filter(h => h != null && typeof h === 'number' && h > 0);
+            const T = temps.length > 0 ? temps.reduce((a, b) => a + b, 0) / temps.length : 0;
+            const RH = humidities.length > 0 ? humidities.reduce((a, b) => a + b, 0) / humidities.length : 0;
+            const SVP = 0.61078 * Math.exp((17.27 * T) / (T + 237.3));
+            const VPD = SVP * (1 - RH / 100);
 
+            return {
+              timestamp: new Date(entry.timestamp).getTime(),
+              dateStr: new Date(entry.timestamp).toLocaleString(),
+              timeStr: new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              temp: T > 0 ? T : null,
+              humidity: RH > 0 ? RH : null,
+              vpd: VPD > 0 ? parseFloat(VPD.toFixed(2)) : 0,
+              lux: typeof r.lux === 'number' ? r.lux : null,
+              tankLevel: typeof r.tankLevel === 'number' ? r.tankLevel : null,
+              gasLevel: typeof r.gasLevel === 'number' ? r.gasLevel : null,
+              soil1: convertToPercent(soil[0], 1),
+              soil2: convertToPercent(soil[1], 2),
+              soil3: convertToPercent(soil[2], 3),
+              soil4: convertToPercent(soil[3], 4),
+              soil5: convertToPercent(soil[4], 5),
+              soil6: convertToPercent(soil[5], 6),
+            };
+          });
+      }
+
+      processed.sort((a, b) => a.timestamp - b.timestamp);
       setRawData(processed);
       setLogs(logData || []);
       setPlants(plantData || []);
@@ -792,7 +845,7 @@ export default function Analytics() {
     }
   };
 
-  // Chart Data (KEIN Downsampling - zeige alle Daten)
+  // Chart Data — bereits serverseitig aggregiert/geglättet
   const chartData = rawData;
 
   // Statistics
@@ -1065,20 +1118,7 @@ export default function Analytics() {
                         minTickGap={50}
                         domain={['dataMin', 'dataMax']}
                         type="number"
-                        tickFormatter={(timestamp) => {
-                          const date = new Date(timestamp);
-                          if (timeRange <= 3) {
-                            // Für kurze Zeiträume: nur Uhrzeit
-                            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                          } else if (timeRange <= 24) {
-                            // Für mittlere Zeiträume: Uhrzeit mit Stunden
-                            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                          } else {
-                            // Für lange Zeiträume: Datum + Uhrzeit
-                            return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' +
-                                   date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                          }
-                        }}
+                        tickFormatter={(ts) => formatTimeAxis(ts, timeRange)}
                       />
                       <YAxis yAxisId="left" stroke={theme.text.muted} fontSize={12} domain={['auto', 'auto']} unit="°C" />
                       <YAxis yAxisId="right" orientation="right" stroke={theme.text.muted} fontSize={12} domain={[0, 100]} unit="%" />
@@ -1095,7 +1135,7 @@ export default function Analytics() {
                         height={30}
                         stroke={theme.border.default}
                         fill={theme.bg.main}
-                        tickFormatter={(timestamp) => new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        tickFormatter={(ts) => formatTimeAxis(ts, timeRange)}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -1164,7 +1204,7 @@ export default function Analytics() {
                         height={30}
                         stroke={theme.border.default}
                         fill={theme.bg.main}
-                        tickFormatter={(timestamp) => new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        tickFormatter={(ts) => formatTimeAxis(ts, timeRange)}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -1259,7 +1299,7 @@ export default function Analytics() {
                         height={30}
                         stroke={theme.border.default}
                         fill={theme.bg.main}
-                        tickFormatter={(timestamp) => new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        tickFormatter={(ts) => formatTimeAxis(ts, timeRange)}
                       />
                     </LineChart>
                   </ResponsiveContainer>

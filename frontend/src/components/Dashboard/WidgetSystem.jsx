@@ -6,11 +6,57 @@ import {
   ChevronDown, Check, Sparkles
 } from 'lucide-react';
 import { api } from '../../utils/api';
+import { colors } from '../../theme';
 
 /**
  * WidgetSystem - Anpassbares Widget-System für das Dashboard
  * Drag & Drop, Resize, Add/Remove Widgets
  */
+
+// Optimale Bereiche pro Sensor-Typ
+const OPTIMAL_RANGES = {
+  temperature: { min: 18, max: 28, criticalMin: 10, criticalMax: 38 },
+  humidity:    { min: 40, max: 70, criticalMin: 20, criticalMax: 90 },
+  light:       { min: 5000, max: 80000, criticalMin: 0, criticalMax: 120000 },
+  vpd:         { min: 0.8, max: 1.4, criticalMin: 0.2, criticalMax: 2.0 }
+};
+
+// Range-Bar Mini-Komponente für Sensor-Widgets
+const RangeBar = ({ value, range, unit, theme }) => {
+  if (value === null || value === undefined || !range) return null;
+  const totalRange = range.criticalMax - range.criticalMin;
+  if (totalRange <= 0) return null;
+
+  const isInRange = value >= range.min && value <= range.max;
+  const markerPos = Math.max(0, Math.min(100, ((value - range.criticalMin) / totalRange) * 100));
+  const lowWidth = ((range.min - range.criticalMin) / totalRange) * 100;
+  const optWidth = ((range.max - range.min) / totalRange) * 100;
+  const highWidth = 100 - lowWidth - optWidth;
+
+  return (
+    <div className="mt-1.5">
+      <div className="relative h-1 rounded-full overflow-hidden" style={{ backgroundColor: theme.bg.hover }}>
+        <div className="absolute inset-0 flex">
+          <div style={{ width: `${lowWidth}%`, backgroundColor: 'rgba(239,68,68,0.25)' }} />
+          <div style={{ width: `${optWidth}%`, backgroundColor: 'rgba(16,185,129,0.25)' }} />
+          <div style={{ width: `${highWidth}%`, backgroundColor: 'rgba(239,68,68,0.25)' }} />
+        </div>
+        <div
+          className="absolute top-0 h-full w-0.5 rounded-full transition-all duration-500"
+          style={{
+            left: `${markerPos}%`,
+            backgroundColor: isInRange ? colors.emerald[400] : colors.red[400],
+            boxShadow: `0 0 3px ${isInRange ? colors.emerald[400] : colors.red[400]}`
+          }}
+        />
+      </div>
+      <div className="flex justify-between text-[8px] mt-0.5 font-mono" style={{ color: theme.text.muted }}>
+        <span>{range.min}</span>
+        <span>{range.max}{unit}</span>
+      </div>
+    </div>
+  );
+};
 
 // Verfügbare Widget-Typen
 const WIDGET_TYPES = {
@@ -164,26 +210,27 @@ const WidgetContent = ({ type, theme, sensorData, expanded }) => {
   const getValue = () => {
     switch (type) {
       case 'temperature':
-        return { value: sensorData?.temp?.toFixed(1) || '--', unit: '°C' };
+        return { value: sensorData?.temp?.toFixed(1) || '--', unit: '°C', numeric: sensorData?.temp ?? null };
       case 'humidity':
-        return { value: sensorData?.humidity?.toFixed(0) || '--', unit: '%' };
+        return { value: sensorData?.humidity?.toFixed(0) || '--', unit: '%', numeric: sensorData?.humidity ?? null };
       case 'light':
-        return { value: sensorData?.lux?.toFixed(0) || '--', unit: 'lx' };
+        return { value: sensorData?.lux?.toFixed(0) || '--', unit: 'lx', numeric: sensorData?.lux ?? null };
       case 'vpd':
         if (sensorData?.temp && sensorData?.humidity) {
           const svp = 0.61078 * Math.exp((17.27 * sensorData.temp) / (sensorData.temp + 237.3));
           const vpd = svp * (1 - sensorData.humidity / 100);
-          return { value: vpd.toFixed(2), unit: 'kPa' };
+          return { value: vpd.toFixed(2), unit: 'kPa', numeric: vpd };
         }
-        return { value: '--', unit: 'kPa' };
+        return { value: '--', unit: 'kPa', numeric: null };
       case 'growScore':
-        return { value: '87', unit: '/100' };
+        return { value: '87', unit: '/100', numeric: null };
       default:
-        return { value: '--', unit: '' };
+        return { value: '--', unit: '', numeric: null };
     }
   };
 
   const data = getValue();
+  const range = OPTIMAL_RANGES[type] || null;
 
   // Mini Widget (1x1)
   if (!expanded && ['temperature', 'humidity', 'light', 'vpd', 'growScore', 'plants', 'countdown', 'alerts', 'automation'].includes(type)) {
@@ -203,19 +250,22 @@ const WidgetContent = ({ type, theme, sensorData, expanded }) => {
             {widgetDef.title}
           </span>
         </div>
-        <div className="text-right">
-          <span
-            className="text-3xl font-black"
-            style={{ color: theme.text.primary }}
-          >
-            {data.value}
-          </span>
-          <span
-            className="text-sm ml-1"
-            style={{ color: theme.text.secondary }}
-          >
-            {data.unit}
-          </span>
+        <div>
+          <div className="text-right">
+            <span
+              className="text-3xl font-black"
+              style={{ color: theme.text.primary }}
+            >
+              {data.value}
+            </span>
+            <span
+              className="text-sm ml-1"
+              style={{ color: theme.text.secondary }}
+            >
+              {data.unit}
+            </span>
+          </div>
+          {range && <RangeBar value={data.numeric} range={range} unit={data.unit} theme={theme} />}
         </div>
       </div>
     );
@@ -237,6 +287,26 @@ const WidgetContent = ({ type, theme, sensorData, expanded }) => {
   );
 };
 
+// Prüft ob ein Sensor-Widget außerhalb des Optimalbereichs liegt
+const isWidgetOutOfRange = (type, sensorData) => {
+  const range = OPTIMAL_RANGES[type];
+  if (!range) return false;
+  let value = null;
+  switch (type) {
+    case 'temperature': value = sensorData?.temp; break;
+    case 'humidity': value = sensorData?.humidity; break;
+    case 'light': value = sensorData?.lux; break;
+    case 'vpd':
+      if (sensorData?.temp && sensorData?.humidity) {
+        const svp = 0.61078 * Math.exp((17.27 * sensorData.temp) / (sensorData.temp + 237.3));
+        value = svp * (1 - sensorData.humidity / 100);
+      }
+      break;
+  }
+  if (value === null || value === undefined) return false;
+  return value < range.min || value > range.max;
+};
+
 // Einzelnes Widget
 const Widget = ({
   widget,
@@ -249,6 +319,7 @@ const Widget = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const widgetDef = WIDGET_TYPES[widget.type];
+  const outOfRange = isWidgetOutOfRange(widget.type, sensorData);
 
   return (
     <div
@@ -259,7 +330,7 @@ const Widget = ({
       `}
       style={{
         backgroundColor: theme.bg.card,
-        borderColor: isEditMode ? theme.accent.color : theme.border.default,
+        borderColor: isEditMode ? theme.accent.color : outOfRange ? 'rgba(239, 68, 68, 0.3)' : theme.border.default,
         boxShadow: isEditMode
           ? `0 0 0 2px ${theme.accent.color}40`
           : '0 4px 16px rgba(0,0,0,0.08)',

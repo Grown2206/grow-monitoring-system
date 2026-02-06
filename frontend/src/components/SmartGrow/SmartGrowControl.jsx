@@ -254,6 +254,42 @@ const SmartGrowControl = () => {
     return <div className="p-8 text-center">Loading theme...</div>;
   }
 
+  // Loading State: Sensor-Daten noch nicht verfügbar
+  if (!isValid) {
+    return (
+      <div className="space-y-6">
+        <div
+          className="rounded-xl border p-8 relative overflow-hidden"
+          style={{
+            background: `linear-gradient(135deg, ${currentTheme.bg.card}, ${currentTheme.bg.hover})`,
+            borderColor: currentTheme.border.default
+          }}
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-3 rounded-xl" style={{ backgroundColor: currentTheme.accent.color + '20', color: currentTheme.accent.color }}>
+              <Sparkles size={32} />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold mb-1" style={{ color: currentTheme.text.primary }}>
+                Smart Grow Control Center
+              </h1>
+              <p className="text-sm" style={{ color: currentTheme.text.secondary }}>
+                Zentrale Steuerung mit AI-gestützter Automation
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="rounded-xl border p-12 flex flex-col items-center justify-center gap-4" style={{ backgroundColor: currentTheme.bg.card, borderColor: currentTheme.border.default }}>
+          <Loader2 size={32} className="animate-spin" style={{ color: currentTheme.accent.color }} />
+          <div className="text-center">
+            <p className="font-medium" style={{ color: currentTheme.text.primary }}>Warte auf Sensordaten...</p>
+            <p className="text-sm mt-1" style={{ color: currentTheme.text.muted }}>Stelle sicher, dass der ESP32 verbunden ist und Daten sendet.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Hero Header */}

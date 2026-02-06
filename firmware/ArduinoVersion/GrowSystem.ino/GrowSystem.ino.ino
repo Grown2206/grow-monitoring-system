@@ -42,6 +42,7 @@
 
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <esp_task_wdt.h>   // Hardware Watchdog Timer
 #include <Wire.h>
 #include <Adafruit_SHT31.h>
 #include <BH1750.h>
@@ -531,6 +532,11 @@ void reconnect() {
 void setup() {
   Serial.begin(115200);
 
+  // Hardware Watchdog: Auto-Reset nach 30s wenn loop() hängt
+  esp_task_wdt_init(30, true);  // 30s Timeout, true = Panic (Auto-Reset)
+  esp_task_wdt_add(NULL);       // Aktuellen Task zum Watchdog hinzufügen
+  Serial.println("🐕 Hardware Watchdog aktiviert (30s Timeout)");
+
   // Analog Inputs
   for(int i=0; i<6; i++) pinMode(PINS_SOIL_MOISTURE[i], INPUT);
   pinMode(PIN_TANK_LEVEL, INPUT);
@@ -752,6 +758,9 @@ void setup() {
 }
 
 void loop() {
+  // Hardware Watchdog füttern (verhindert Auto-Reset wenn alles OK)
+  esp_task_wdt_reset();
+
   // Non-blocking: reconnect() versucht nur einmal alle 5s, blockiert nicht
   if (!client.connected()) reconnect();
   if (client.connected()) client.loop();

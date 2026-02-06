@@ -10,7 +10,7 @@ const { validateBody, validateQuery, validateObjectId, schemas } = require('../m
 // Controller Imports
 const authController = require('../controllers/authController');
 const { getPlants, updatePlant } = require('../controllers/plantController');
-const { getHistory } = require('../controllers/dataController');
+const { getHistory, getAggregatedHistory } = require('../controllers/dataController');
 const { getLogs, getEvents, createEvent, deleteEvent, getAutomationConfig, updateAutomationConfig, getDeviceStates } = require('../controllers/systemController');
 const { getConsultation } = require('../controllers/aiController');
 const notificationController = require('../controllers/notificationController');
@@ -29,15 +29,7 @@ const calendarController = require('../controllers/calendarController');
 const plantAnalysisService = require('../services/plantAnalysisService');
 const maintenanceRoutes = require('./maintenanceRoutes');
 
-// Config Speicher (Mockup für Laufzeit, wird bei Neustart zurückgesetzt - idealerweise DB nutzen)
-let automationConfig = {
-  lightStart: "06:00",
-  lightDuration: 18,
-  tempTarget: 24,
-  tempHysteresis: 2,
-  pumpInterval: 4,
-  pumpDuration: 30
-};
+// Webhook-URL (TODO: auch in DB persistieren via SystemConfig)
 let webhookUrl = "";
 
 // ==========================================
@@ -70,6 +62,7 @@ router.put('/plants/:slotId', optionalAuth, updatePlant);
 // 2. DATEN & HISTORIE (Public - optional auth)
 // ==========================================
 router.get('/history', optionalAuth, getHistory);
+router.get('/history/aggregated', optionalAuth, getAggregatedHistory);
 router.get('/logs', optionalAuth, getLogs);
 
 // ==========================================
@@ -122,6 +115,16 @@ router.post('/controls/relay', optionalAuth, (req, res) => {
     return res.status(400).json({
       success: false,
       message: "Fehlende Parameter (relay, state)"
+    });
+  }
+
+  // Whitelist-Validierung gegen definierte Relays
+  const { DEVICE_DEFINITIONS } = require('../config/devices');
+  const validRelays = Object.keys(DEVICE_DEFINITIONS.relays);
+  if (!validRelays.includes(relay)) {
+    return res.status(400).json({
+      success: false,
+      message: `Ungültiger Relay-Name: '${relay}'. Erlaubt: ${validRelays.join(', ')}`
     });
   }
 
@@ -357,6 +360,25 @@ router.post('/automation-rules/:id/simulate', optionalAuth, validateObjectId('id
 router.post('/automation-rules/:id/trigger', optionalAuth, validateObjectId('id'), automationRuleController.trigger);
 router.get('/automation-engine/status', optionalAuth, automationRuleController.getEngineStatus);
 router.post('/automation-engine/toggle', optionalAuth, automationRuleController.toggleEngine);
+
+// ==========================================
+// WATCHDOG STATUS (Sensor-Heartbeat + Relay-Laufzeiten)
+// ==========================================
+router.get('/watchdog/status', optionalAuth, (req, res) => {
+  try {
+    const sensorWatchdog = require('../services/watchdogService');
+    const relayWatchdog = require('../services/relayWatchdogService');
+    res.json({
+      success: true,
+      data: {
+        sensor: sensorWatchdog.getStatus(),
+        relays: relayWatchdog.getRelayStates()
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 // ==========================================
 // 13. PLANT GROWTH TRACKING

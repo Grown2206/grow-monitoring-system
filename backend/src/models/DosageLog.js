@@ -23,10 +23,10 @@ const DosageLogSchema = new mongoose.Schema({
   // DOSIERUNGS-DETAILS
   // ==========================================
   dosage: {
-    // Version 1.0: Single Pump
+    // Version 1.0: Single Pump (optional — bei BioBizz wird multiPump genutzt)
     singlePump: {
       pumpId: { type: Number, default: 1 },
-      ml_dosed: { type: Number, required: true },
+      ml_dosed: { type: Number },
       duration_seconds: { type: Number },  // Wie lange Pumpe lief
       flowRate_ml_per_min: { type: Number, default: 100 }
     },
@@ -92,7 +92,7 @@ const DosageLogSchema = new mongoose.Schema({
   // ==========================================
   status: {
     type: String,
-    enum: ['success', 'partial', 'failed', 'cancelled'],
+    enum: ['success', 'pending', 'partial', 'failed', 'cancelled'],
     default: 'success',
     required: true
   },

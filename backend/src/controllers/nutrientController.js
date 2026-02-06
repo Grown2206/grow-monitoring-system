@@ -595,17 +595,20 @@ exports.doseWithBioBizz = async (req, res, next) => {
       }
     }
 
-    // Messungen VOR Dosierung
-    if (!reservoirState) {
-      reservoirState = await ReservoirState.getOrCreate();
+    // Messungen VOR Dosierung (optional — fehlender ReservoirState darf Logging nicht blockieren)
+    let measurementsBefore = { timestamp: new Date() };
+    try {
+      if (!reservoirState) {
+        reservoirState = await ReservoirState.getOrCreate();
+      }
+      if (reservoirState?.main) {
+        measurementsBefore.ec = reservoirState.main.ec || null;
+        measurementsBefore.ph = reservoirState.main.ph || null;
+        measurementsBefore.temp = reservoirState.main.temp || null;
+      }
+    } catch (e) {
+      console.warn('⚠️ ReservoirState nicht verfügbar — Logging ohne Messwerte:', e.message);
     }
-
-    const measurementsBefore = {
-      ec: reservoirState.main.ec,
-      ph: reservoirState.main.ph,
-      temp: reservoirState.main.temp,
-      timestamp: new Date()
-    };
 
     // DosageLog erstellen
     const dosageLog = new DosageLog({

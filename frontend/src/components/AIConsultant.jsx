@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Bot, Sparkles, AlertCircle, CheckCircle2, MessageSquare, ChevronRight, Send, Leaf } from 'lucide-react';
 import { useSocket } from '../context/SocketContext';
+import { useTheme } from '../theme';
 import { api } from '../utils/api';
 
 export default function AIConsultant() {
   const { sensorData } = useSocket();
+  const { currentTheme } = useTheme();
   const [messages, setMessages] = useState([
     { role: 'ai', text: 'Hallo! Ich bin dein Grow-Assistent. Ich analysiere deine Sensordaten. Wie kann ich helfen?' }
   ]);
   const [analyzing, setAnalyzing] = useState(false);
   const [inputText, setInputText] = useState('');
+  const [sendHovered, setSendHovered] = useState(false);
+  const [systemCheckHovered, setSystemCheckHovered] = useState(false);
+  const [duengerplanHovered, setDuengerplanHovered] = useState(false);
+  const [clearHovered, setClearHovered] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -43,12 +50,12 @@ export default function AIConsultant() {
       const response = analysis.join('\n\n');
       setMessages(prev => [...prev, { role: 'user', text: 'Analysiere mein System' }, { role: 'ai', text: response }]);
       setAnalyzing(false);
-    }, 1500); 
+    }, 1500);
   };
 
   const handleSendMessage = async () => {
     if (!inputText.trim()) return;
-    
+
     const userMsg = inputText;
     setInputText('');
     setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
@@ -57,11 +64,11 @@ export default function AIConsultant() {
     try {
       // Hier würde man idealerweise die echte AI API aufrufen
       // const response = await api.getConsultation({ prompt: userMsg, sensorData });
-      
+
       // Mock Antwort für Demo
       setTimeout(() => {
         let aiResponse = "Das ist eine interessante Frage. Als einfacher Bot kann ich darauf noch nicht spezifisch antworten, aber ich lerne noch!";
-        
+
         if (userMsg.toLowerCase().includes('dünger')) {
           aiResponse = "📅 **Dünge-Empfehlung:**\nAchte in der aktuellen Phase auf ausreichend Stickstoff (N). Bei Mangelerscheinungen (gelbe Blätter unten) Dosis leicht erhöhen.";
         } else if (userMsg.toLowerCase().includes('licht')) {
@@ -80,45 +87,97 @@ export default function AIConsultant() {
   };
 
   return (
-    <div className="h-[calc(100vh-140px)] flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-500">
-      
+    <div
+      className="h-[calc(100vh-140px)] flex flex-col rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-500"
+      style={{
+        backgroundColor: currentTheme.bg.card,
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderColor: currentTheme.border.default
+      }}
+    >
+
       {/* Header */}
-      <div className="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between shadow-sm z-10">
+      <div
+        className="p-4 flex items-center justify-between shadow-sm z-10"
+        style={{
+          backgroundColor: currentTheme.bg.main,
+          borderBottomWidth: 1,
+          borderBottomStyle: 'solid',
+          borderBottomColor: currentTheme.border.default
+        }}
+      >
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-lg shadow-lg shadow-purple-900/20">
-            <Bot className="text-white" size={24} />
+          <div
+            className="p-2 rounded-lg shadow-lg"
+            style={{
+              background: `linear-gradient(to bottom right, ${currentTheme.accent.color}, ${currentTheme.accent.dark || currentTheme.accent.color})`,
+              boxShadow: `0 4px 6px -1px ${currentTheme.accent.color}33`
+            }}
+          >
+            <Bot style={{ color: '#ffffff' }} size={24} />
           </div>
           <div>
-            <h2 className="font-bold text-white">GrowBot AI</h2>
-            <div className="flex items-center gap-1.5 text-xs text-emerald-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            <h2 className="font-bold" style={{ color: currentTheme.text.primary }}>GrowBot AI</h2>
+            <div className="flex items-center gap-1.5 text-xs" style={{ color: '#34d399' }}>
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: '#10b981' }}></span>
               Online & Bereit
             </div>
           </div>
         </div>
-        <button onClick={() => setMessages([{ role: 'ai', text: 'Hallo! Ich bin dein Grow-Assistent. Wie kann ich helfen?' }])} className="text-slate-500 hover:text-slate-300 text-xs">Chat leeren</button>
+        <button
+          onClick={() => setMessages([{ role: 'ai', text: 'Hallo! Ich bin dein Grow-Assistent. Wie kann ich helfen?' }])}
+          onMouseEnter={() => setClearHovered(true)}
+          onMouseLeave={() => setClearHovered(false)}
+          className="text-xs"
+          style={{ color: clearHovered ? currentTheme.text.secondary : currentTheme.text.muted }}
+        >
+          Chat leeren
+        </button>
       </div>
 
       {/* Chat Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-900/50 scroll-smooth">
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth"
+        style={{ backgroundColor: currentTheme.bg.card + '80' }}
+      >
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
-            <div className={`
-              max-w-[85%] md:max-w-[70%] rounded-2xl p-4 text-sm leading-relaxed whitespace-pre-line shadow-md relative
-              ${msg.role === 'user' 
-                ? 'bg-blue-600 text-white rounded-tr-none ml-10' 
-                : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-tl-none mr-10'}
-            `}>
-              {msg.role === 'ai' && <Bot size={16} className="absolute -left-8 top-0 text-slate-500" />}
+            <div
+              className={`
+                max-w-[85%] md:max-w-[70%] rounded-2xl p-4 text-sm leading-relaxed whitespace-pre-line shadow-md relative
+                ${msg.role === 'user' ? 'rounded-tr-none ml-10' : 'rounded-tl-none mr-10'}
+              `}
+              style={msg.role === 'user'
+                ? { backgroundColor: currentTheme.accent.color, color: '#ffffff' }
+                : {
+                    backgroundColor: currentTheme.bg.hover,
+                    color: currentTheme.text.primary,
+                    borderWidth: 1,
+                    borderStyle: 'solid',
+                    borderColor: currentTheme.border.default
+                  }
+              }
+            >
+              {msg.role === 'ai' && <Bot size={16} className="absolute -left-8 top-0" style={{ color: currentTheme.text.muted }} />}
               {msg.text}
             </div>
           </div>
         ))}
-        
+
         {analyzing && (
           <div className="flex justify-start animate-pulse">
-            <div className="bg-slate-800 border border-slate-700 rounded-2xl rounded-tl-none p-4 flex items-center gap-2 text-slate-400 text-sm">
-              <Sparkles size={16} className="animate-spin text-purple-400" /> 
+            <div
+              className="rounded-2xl rounded-tl-none p-4 flex items-center gap-2 text-sm"
+              style={{
+                backgroundColor: currentTheme.bg.hover,
+                borderWidth: 1,
+                borderStyle: 'solid',
+                borderColor: currentTheme.border.default,
+                color: currentTheme.text.secondary
+              }}
+            >
+              <Sparkles size={16} className="animate-spin" style={{ color: currentTheme.accent.color }} />
               <span className="typing-dots">Analysiere...</span>
             </div>
           </div>
@@ -127,37 +186,81 @@ export default function AIConsultant() {
       </div>
 
       {/* Input Area */}
-      <div className="p-4 bg-slate-950 border-t border-slate-800">
+      <div
+        className="p-4"
+        style={{
+          backgroundColor: currentTheme.bg.main,
+          borderTopWidth: 1,
+          borderTopStyle: 'solid',
+          borderTopColor: currentTheme.border.default
+        }}
+      >
         {/* Quick Actions */}
         <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-          <button 
+          <button
             onClick={analyzeSystem}
             disabled={analyzing}
-            className="flex-shrink-0 flex items-center gap-2 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-500/20 transition-all"
+            onMouseEnter={() => setSystemCheckHovered(true)}
+            onMouseLeave={() => setSystemCheckHovered(false)}
+            className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{
+              backgroundColor: systemCheckHovered ? currentTheme.accent.color + '25' : currentTheme.accent.color + '15',
+              color: currentTheme.accent.light || currentTheme.accent.color,
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: currentTheme.accent.color + '30'
+            }}
           >
             <Sparkles size={14} /> System Check
           </button>
-          <button 
+          <button
             onClick={() => setInputText('Erstelle einen Düngerplan für Woche 3')}
-            className="flex-shrink-0 flex items-center gap-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-500/20 transition-all"
+            onMouseEnter={() => setDuengerplanHovered(true)}
+            onMouseLeave={() => setDuengerplanHovered(false)}
+            className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            style={{
+              backgroundColor: duengerplanHovered ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.1)',
+              color: '#6ee7b7',
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: 'rgba(16,185,129,0.2)'
+            }}
           >
             <Leaf size={14} /> Düngerplan
           </button>
         </div>
 
         <div className="relative">
-          <input 
-            type="text" 
+          <input
+            type="text"
             value={inputText}
             onChange={(e) => setInputText(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+            onFocus={() => setInputFocused(true)}
+            onBlur={() => setInputFocused(false)}
             placeholder="Stelle eine Frage an deinen Grow-Assistenten..."
-            className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-4 pr-12 py-3 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all placeholder:text-slate-600"
+            className="w-full rounded-xl pl-4 pr-12 py-3 outline-none transition-all"
+            style={{
+              backgroundColor: currentTheme.bg.card,
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: inputFocused ? currentTheme.accent.color : currentTheme.border.default,
+              color: currentTheme.text.primary,
+              boxShadow: inputFocused ? `0 0 0 1px ${currentTheme.accent.color}` : 'none'
+            }}
           />
-          <button 
+          <button
             onClick={handleSendMessage}
             disabled={!inputText.trim() || analyzing}
-            className="absolute right-2 top-2 p-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onMouseEnter={() => setSendHovered(true)}
+            onMouseLeave={() => setSendHovered(false)}
+            className="absolute right-2 top-2 p-1.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: sendHovered && inputText.trim() && !analyzing
+                ? currentTheme.accent.light || currentTheme.accent.color
+                : currentTheme.accent.color,
+              color: '#ffffff'
+            }}
           >
             <Send size={18} />
           </button>

@@ -34,6 +34,20 @@ export const SocketProvider = ({ children }) => {
     elapsed_ms: 0
   });
 
+  // Relay-Status (zentral statt in Controls.jsx)
+  const [relayState, setRelayState] = useState({});
+
+  // Letzte Sensordaten-Timestamp (für StatusBadge Freshness)
+  const [lastSensorTimestamp, setLastSensorTimestamp] = useState(null);
+
+  // Watchdog-Status (Sensor-Heartbeat + MQTT)
+  const [watchdogStatus, setWatchdogStatus] = useState({
+    esp32: 'unknown',        // 'ok', 'warning', 'critical', 'unknown'
+    mqtt: false,             // MQTT-Broker verbunden?
+    lastDataReceived: null,  // Timestamp letzte Sensordaten
+    elapsedMs: null          // Millisekunden seit letzten Daten
+  });
+
   // VPD-Daten (Vapor Pressure Deficit)
   const [vpdData, setVpdData] = useState({
     vpd: 0,
@@ -76,8 +90,8 @@ export const SocketProvider = ({ children }) => {
     });
 
     newSocket.on('sensorData', (data) => {
-      // console.log("Neue Sensordaten:", data); // Debugging
       setSensorData(prev => ({ ...prev, ...data }));
+      setLastSensorTimestamp(Date.now());
     });
 
     // Nährstoff-Events
@@ -97,6 +111,23 @@ export const SocketProvider = ({ children }) => {
       setVpdData(prev => ({ ...prev, ...data }));
     });
 
+    // Watchdog-Events (ESP32 Heartbeat + MQTT Status)
+    newSocket.on('watchdogStatus', (data) => {
+      setWatchdogStatus(prev => ({ ...prev, ...data }));
+    });
+
+    // Alert-Events (vom Watchdog oder Relay-Watchdog)
+    newSocket.on('alert', (data) => {
+      console.warn('⚠️ System-Alert:', data);
+    });
+
+    // Relay-Events (zentral für alle Komponenten)
+    newSocket.on('relayUpdate', (data) => {
+      if (data.relay && data.state !== undefined) {
+        setRelayState(prev => ({ ...prev, [data.relay]: data.state }));
+      }
+    });
+
     setSocket(newSocket);
 
     return () => newSocket.close();
@@ -109,7 +140,10 @@ export const SocketProvider = ({ children }) => {
       sensorData,
       nutrientSensors,
       nutrientStatus,
-      vpdData
+      vpdData,
+      relayState,
+      watchdogStatus,
+      lastSensorTimestamp
     }}>
       {children}
     </SocketContext.Provider>

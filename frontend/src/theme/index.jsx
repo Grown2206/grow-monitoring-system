@@ -431,7 +431,7 @@ export const transitions = {
 // ============================================
 import { useState, useEffect, createContext, useContext } from 'react';
 
-const ThemeContext = createContext({
+export const ThemeContext = createContext({
   currentTheme: themes.dark,
   themeId: 'dark',
   setTheme: () => {}

@@ -40,11 +40,25 @@ const SensorLogSchema = new mongoose.Schema({
     // AHT21 Temperatur & Luftfeuchtigkeit (ENS160 Companion)
     aht21_temp: Number,      // Temperatur in °C
     aht21_humidity: Number   // Luftfeuchtigkeit in %
+  },
+
+  // Sensor-Health: Zeigt ob Messwerte vertrauenswürdig sind
+  // false = Sensor ausgefallen (0.0 Wert) oder außerhalb Range
+  sensorHealth: {
+    bottom: { type: Boolean, default: true },    // SHT31 Bottom
+    middle: { type: Boolean, default: true },    // SHT31 Middle
+    top: { type: Boolean, default: true },       // SHT31 Top
+    light: { type: Boolean, default: true },     // BH1750
+    air: { type: Boolean, default: true }        // ENS160/AHT21
   }
 });
 
 // Indexes für schnelle Abfragen
 SensorLogSchema.index({ timestamp: -1 });
 SensorLogSchema.index({ device: 1, timestamp: -1 });
+
+// TTL-Index: Sensordaten automatisch nach 90 Tagen löschen
+// Verhindert unbegrenztes DB-Wachstum (~6.3 Mio. Einträge/Jahr bei 5s Intervall)
+SensorLogSchema.index({ timestamp: 1 }, { expireAfterSeconds: 7776000 }); // 90 Tage
 
 module.exports = mongoose.model('SensorLog', SensorLogSchema);
